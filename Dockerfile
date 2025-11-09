@@ -36,7 +36,7 @@ COPY utils.py .
 COPY pipeline.py .
 COPY main.py .
 COPY example_query.json .
-
+COPY api.py .
 # Create outputs directory
 RUN mkdir -p outputs
 
