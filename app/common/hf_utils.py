@@ -1,112 +1,54 @@
-# app/common/hf_utils.py
-from __future__ import annotations
-
-import os
-from typing import Optional, Dict, Any
-
+import re
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from .config import settings
-
-_tok = None
-_model = None
-_device = None
-
-
-def _pick_device() -> str:
-    # Prefer CUDA if available, else Apple MPS, else CPU
-    if torch.cuda.is_available():
-        return "cuda"
-    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
-
-
-def get_model() -> tuple[AutoTokenizer, AutoModelForCausalLM, str]:
-    """
-    Lazy-load HF tokenizer and model based on .env (HF_MODEL_ID/HF_TOKEN).
-    - On CUDA: will try to use 4-bit only if bitsandbytes is available, otherwise fp16.
-    - On MPS/CPU: loads in bf16/fp16 if supported, otherwise fp32.
-    """
-    global _tok, _model, _device
-    if _tok is not None and _model is not None and _device is not None:
-        return _tok, _model, _device
-
-    model_id = settings.hf_model_id
-    hf_token = settings.hf_token or None
-    _device = _pick_device()
-
-    load_kwargs: Dict[str, Any] = {
-        "trust_remote_code": True,
-        "torch_dtype": torch.bfloat16 if torch.cuda.is_available() or _device == "mps" else torch.float32,
-    }
-
-    if _device == "cuda":
-        # Try 4-bit if bitsandbytes exists; otherwise half precision
-        try:
-            import bitsandbytes as _  # noqa: F401
-            from transformers import BitsAndBytesConfig
-
-            load_kwargs["quantization_config"] = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-            )
-            load_kwargs["device_map"] = "auto"
-        except Exception:
-            load_kwargs["device_map"] = "auto"
-            load_kwargs["torch_dtype"] = torch.float16
-    elif _device == "mps":
-        # MPS prefers full/bfloat16 without quantization
-        load_kwargs["device_map"] = {"": 0}  # single device mapping still ok
-    else:
-        # CPU
-        load_kwargs["device_map"] = {"": "cpu"}
-
-    if hf_token:
-        os.environ["HF_TOKEN"] = hf_token
-
-    _tok = AutoTokenizer.from_pretrained(model_id, use_auth_token=hf_token, trust_remote_code=True)
-    _model = AutoModelForCausalLM.from_pretrained(model_id, use_auth_token=hf_token, **load_kwargs)
-    _model.eval()
-
-    return _tok, _model, _device
-
+def _clean_text(text: str) -> str:
+    text = re.sub(r"[\u0000-\u001F\u007F-\u009F]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 def generate(
     prompt: str,
+    system: str = "You are a helpful legal research assistant.",
     max_new_tokens: int = 256,
     temperature: float = 0.2,
-    top_p: float = 0.95,
-    system: Optional[str] = None,
-) -> str:
-    """
-    Minimal text generation helper. Works with instruct models that accept plain prompts.
-    If your model expects chat format, wrap it before calling (or adapt here).
-    """
-    tok, model, device = get_model()
+    top_p: float = 0.9,
+):
+    from app.common.config import settings
+    model_id = settings.hf_model_id.strip()  # remove trailing spaces
+    tok = AutoTokenizer.from_pretrained(model_id, use_auth_token=settings.hf_token)
+    if tok.pad_token_id is None and tok.eos_token_id is not None:
+        tok.pad_token = tok.eos_token
 
-    # Simple prompt; adapt if your model expects chat templates
-    full_prompt = f"{system.strip()}\n\n{prompt}" if system else prompt
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto",
+        use_auth_token=settings.hf_token,
+    )
 
-    inputs = tok(full_prompt, return_tensors="pt")
-    if device == "cuda":
-        inputs = {k: v.cuda() for k, v in inputs.items()}
-    elif device == "mps":
-        inputs = {k: v.to("mps") for k, v in inputs.items()}
+    # Apply chat template
+    if hasattr(tok, "apply_chat_template"):
+        msgs = [{"role": "system", "content": system},
+                {"role": "user", "content": prompt}]
+        full_prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    else:
+        full_prompt = f"{system}\nUser: {prompt}\nAssistant:"
 
-    with torch.no_grad():
-        out = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=temperature > 0,
-            temperature=temperature,
-            top_p=top_p,
-            pad_token_id=tok.eos_token_id,
-            eos_token_id=tok.eos_token_id,
-        )
+    inputs = tok(full_prompt, return_tensors="pt").to(model.device)
 
-    text = tok.decode(out[0], skip_special_tokens=True)
-    # Return only the completion after the prompt
-    return text[len(full_prompt):].strip() if text.startswith(full_prompt) else text.strip()
+    output = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=(temperature > 0),
+        temperature=temperature,
+        top_p=top_p,
+        repetition_penalty=1.05,
+        pad_token_id=tok.pad_token_id,
+        eos_token_id=tok.eos_token_id,
+    )
+
+    # Decode only generated tokens
+    gen_tokens = output[0][inputs["input_ids"].shape[1]:]
+    text = tok.decode(gen_tokens, skip_special_tokens=True)
+    return _clean_text(text)
