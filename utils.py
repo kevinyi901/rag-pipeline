@@ -38,7 +38,11 @@ def print_chunks(retrieved_chunks: List[dict]) -> None:
 
     df = pd.DataFrame(results)
 
-    df['preview'] = df['text'].str.slice(0, 30) + '...'
+    # Safely add preview and section columns
+    if 'text' in df.columns and len(df) > 0:
+        df['preview'] = df['text'].str.slice(0, 30) + '...'
+    if 'section' in df.columns and len(df) > 0:
+        df['section'] = df['section'].str.slice(0, 20) + '...'
     df['section'] = df['section'].str.slice(0, 20) + '...'
 
     output_df = df[[
@@ -58,6 +62,10 @@ def print_chunks_reranking(retrieved_chunks: List[dict]) -> None:
     Args:
         retrieved_chunks: List of retrieved chunk dictionaries with rerank scores
     """
+    if not retrieved_chunks:
+        print("No chunks retrieved.")
+        return
+        
     results = []
     for c in retrieved_chunks:
         result = {}
@@ -83,8 +91,11 @@ def print_chunks_reranking(retrieved_chunks: List[dict]) -> None:
 
     df = pd.DataFrame(results)
 
-    df['preview'] = df['text'].str.slice(0, 30) + '...'
-    df['section'] = df['section'].str.slice(0, 20) + '...'
+    # Safely add preview and section columns
+    if 'text' in df.columns and len(df) > 0:
+        df['preview'] = df['text'].str.slice(0, 30) + '...'
+    if 'section' in df.columns and len(df) > 0:
+        df['section'] = df['section'].str.slice(0, 20) + '...'
 
     output_df = df[[
         'score', 'rerank_score', 'county', 'section', 'preview', 
