@@ -7,7 +7,6 @@ services:
       dockerfile: Dockerfile
     container_name: rag-pipeline
     
-    # GPU support - requires NVIDIA Docker runtime
     deploy:
       resources:
         reservations:
@@ -16,21 +15,15 @@ services:
               count: 1
               capabilities: [gpu]
     
-    # Environment variables - load from .env file
     env_file:
       - .env
     
-    # Mount volumes for outputs and custom queries
     volumes:
       - ./outputs:/app/outputs
       - ./queries:/app/queries:ro
+      - ~/model_cache:/root/.cache
     
-    # Keep container running for interactive use
-    stdin_open: true
-    tty: true
+    # Keep container running
+    command: tail -f /dev/null
     
-    # Restart policy
     restart: unless-stopped
-    
-    # Override default command if needed
-    # command: python3 main.py --mode hybrid --json queries/custom_query.json
