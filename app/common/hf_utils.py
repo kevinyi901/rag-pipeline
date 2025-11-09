@@ -15,7 +15,7 @@ def generate(
     top_p: float = 0.9,
 ):
     from app.common.config import settings
-    model_id = settings.hf_model_id.strip()  # remove trailing spaces
+    model_id = settings.hf_model_id.strip()
     tok = AutoTokenizer.from_pretrained(model_id, use_auth_token=settings.hf_token)
     if tok.pad_token_id is None and tok.eos_token_id is not None:
         tok.pad_token = tok.eos_token
@@ -41,14 +41,28 @@ def generate(
         **inputs,
         max_new_tokens=max_new_tokens,
         do_sample=(temperature > 0),
-        temperature=temperature,
+        temperature=temperature if temperature > 0 else None,  # Don't pass temp=0
         top_p=top_p,
         repetition_penalty=1.05,
         pad_token_id=tok.pad_token_id,
         eos_token_id=tok.eos_token_id,
     )
 
-    # Decode only generated tokens
-    gen_tokens = output[0][inputs["input_ids"].shape[1]:]
+    # Decode only generated tokens (skip the input prompt)
+    input_length = inputs["input_ids"].shape[1]
+    gen_tokens = output[0][input_length:]
     text = tok.decode(gen_tokens, skip_special_tokens=True)
-    return _clean_text(text)
+    
+    # Clean up any remaining artifacts
+    text = _clean_text(text)
+    
+    # Remove any echoed prompts (extra safety)
+    if system in text:
+        text = text.replace(system, "").strip()
+    if "Question:" in text and prompt in text:
+        # Try to extract only the answer part
+        parts = text.split("Answer:", 1)
+        if len(parts) > 1:
+            text = parts[1].strip()
+    
+    return text
