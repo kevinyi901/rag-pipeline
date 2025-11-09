@@ -56,6 +56,51 @@ def _to_matches(resp) -> list[dict]:
     return matches
 
 
+def build_context_string(matches, max_chunks=None):
+    """
+    Build enriched context string with metadata for LLM.
+    """
+    if not matches:
+        return "No documents were retrieved."
+    
+    matches_to_process = matches
+    if max_chunks is not None:
+        matches_to_process = matches[:max_chunks]
+    
+    context_string = ""
+    for i, match in enumerate(matches_to_process):
+        metadata = match.get('metadata', {})
+        score = match.get('score', 0)
+        
+        chunk_text = metadata.get('chunk_text', 'N/A')
+        state = metadata.get('state', 'N/A')
+        county = metadata.get('county', 'N/A')
+        section = metadata.get('section', 'N/A')
+        
+        tags = []
+        if metadata.get('obligation') == 'Y':
+            tags.append("Obligation")
+        if metadata.get('penalty') == 'Y':
+            tags.append("Penalty")
+        if metadata.get('permission') == 'Y':
+            tags.append("Permission")
+        if metadata.get('prohibition') == 'Y':
+            tags.append("Prohibition")
+        
+        context_string += f"[Chunk {i+1}]\n"
+        context_string += f"Score: {score:.4f}\n"
+        context_string += f"State: {state}\n"
+        context_string += f"County: {county}\n"
+        context_string += f"Section: {section}\n"
+        
+        if tags:
+            context_string += f"Tags: {', '.join(tags)}\n"
+        
+        context_string += f"Text: \"{chunk_text}\"\n\n"
+    
+    return context_string
+
+
 def run_query(question: str, filters: Dict[str, Any] | None = None, *, filter_only: bool = False, max_ctx: int = 10):
     """
     Standard pipeline:
@@ -69,24 +114,60 @@ def run_query(question: str, filters: Dict[str, Any] | None = None, *, filter_on
     matches = _to_matches(resp)
 
     if filter_only:
-        return {"answer": "", "matches": matches}
+        # For filter-only search, generate summary of sample
+        context = build_context_string(matches, max_chunks=10)
+        num_total_chunks = len(matches)
+        
+        system = """You are a highly intelligent legal analyst.
+You will be given a sample of the top-retrieved legal documents.
+Your task is to provide a high-level summary of the main themes found in this sample.
 
-    # 3) build small context window
-    # (Assumes your metadata contains "chunk_text"; adapt if your key differs)
-    ctx_parts: list[str] = []
-    for m in matches[:max_ctx]:
-        meta = m.get("metadata", {})
-        txt = meta.get("chunk_text") or meta.get("text") or ""
-        if txt:
-            ctx_parts.append(txt.strip())
-    context = "\n\n---\n\n".join(ctx_parts)
+- DO NOT try to answer a question.
+- DO NOT say "I cannot find an answer."
+- Simply summarize what you see. Group similar topics together.
+- Start your response with: "The documents in this sample primarily discuss..." """
+        
+        prompt = f"""**Retrieved Chunks (Sample):**
+{context}"""
+        
+        from app.common.hf_utils import generate
+        response_text = generate(prompt, system=system, max_new_tokens=1024, temperature=0.2, top_p=0.9)
+        
+        answer = (
+            f"Found {num_total_chunks} laws matching your filters. "
+            f"A full list is available in the generated CSV file.\n\n"
+            f"Here is a quick summary of the first 10 results:\n\n"
+            f"{response_text}"
+        )
+        
+        return {"answer": answer, "matches": matches}
 
-    # 4) generate with your HF helper
+    # Standard query with answer generation
+    context = build_context_string(matches, max_chunks=max_ctx)
+    
+    system = """You are a highly intelligent legal analyst. Your goal is to help a user understand the legal information provided.
+You will be given the user's original question and a list of 'Retrieved Chunks' from a legal database.
+
+Your task is to generate a natural language response. You MUST follow these rules:
+1. Base your answer ONLY on the information inside the "Retrieved Chunks". Do not use any outside knowledge.
+2. Use the 'Score, State, County, Section, Tags' fields for quick understanding, but use the full 'Text' field to find the specific answer.
+3. If the chunks do not contain a clear answer to the user's question, you MUST respond only with the text: 'The information was not found in the provided documents.'
+4. If the chunks do contain an answer, summarize it and cite the chunks.
+
+TEMPLATE FOR A SUCCESSFUL ANSWER:
+### Summary of Findings
+[Your summary of the answer found in the chunks. Cite the chunks, e.g., "The law prohibits owners from letting their dog disturb the peace [Chunk 1]."]
+
+### How This Was Generated
+To answer your question, this tool performed a search on the UnBarred 2.0 legal database. The "Retrieved Chunks" represent the top most relevant sections of the law found by our search. This summary is based only on the information in those chunks."""
+    
+    prompt = f"""**User's Question:**
+{question}
+
+**Retrieved Chunks:**
+{context}"""
+    
     from app.common.hf_utils import generate
-
-    system = "You are a helpful legal research assistant. Answer succinctly and cite sections when possible."
-    prompt = f"Question: {question}\n\nRelevant context:\n{context}\n\nAnswer:"
-    answer = generate(prompt, max_new_tokens=256, temperature=0.2, top_p=0.9, system=system)
+    answer = generate(prompt, system=system, max_new_tokens=1024, temperature=0.2, top_p=0.9)
 
     return {"answer": answer, "matches": matches}
-
