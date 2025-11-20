@@ -97,13 +97,13 @@ class RAGPipeline:
         # Generate output
         if query:  # Standard search
             context_string = build_context_string(retrieved_chunks)
-            csv_filename = Config.BASELINE_CSV_FILENAME
-            generate_csv(csv_filename, retrieved_chunks)
+            # csv_filename = Config.BASELINE_CSV_FILENAME
+            # generate_csv(csv_filename, retrieved_chunks)
             llm_output = generate_llm_response(query, context_string, self.tokenizer, self.model)
         else:  # Filter-only search
             context_string = build_context_string(retrieved_chunks, 10)
-            csv_filename = Config.BASELINE_FILTER_CSV_FILENAME
-            generate_csv(csv_filename, retrieved_chunks)
+            # csv_filename = Config.BASELINE_FILTER_CSV_FILENAME
+            # generate_csv(csv_filename, retrieved_chunks)
             llm_output = generate_llm_response_filter_only_search(
                 query, context_string, self.tokenizer, self.model, len(retrieved_chunks)
             )
@@ -111,7 +111,7 @@ class RAGPipeline:
         print("\n--- FINAL LLM OUTPUT ---")
         print(llm_output)
         
-        return llm_output, csv_filename
+        return llm_output, retrieved_chunks
     
     def run_hybrid_search(
         self, 
@@ -158,13 +158,13 @@ class RAGPipeline:
         # Generate output
         if query:  # Standard search
             context_string = build_context_string(retrieved_chunks)
-            csv_filename = Config.HYBRID_CSV_FILENAME
-            generate_csv_reranking(csv_filename, retrieved_chunks)
+            # csv_filename = Config.HYBRID_CSV_FILENAME
+            # generate_csv_reranking(csv_filename, retrieved_chunks)
             llm_output = generate_llm_response(query, context_string, self.tokenizer, self.model)
         else:  # Filter-only search
             context_string = build_context_string(retrieved_chunks, 10)
-            csv_filename = Config.HYBRID_FILTER_CSV_FILENAME
-            generate_csv_reranking(csv_filename, retrieved_chunks)
+            # csv_filename = Config.HYBRID_FILTER_CSV_FILENAME
+            # generate_csv_reranking(csv_filename, retrieved_chunks)
             llm_output = generate_llm_response_filter_only_search(
                 query, context_string, self.tokenizer, self.model, len(retrieved_chunks)
             )
@@ -172,7 +172,7 @@ class RAGPipeline:
         print("\n--- FINAL LLM OUTPUT ---")
         print(llm_output)
         
-        return llm_output, csv_filename
+        return llm_output, retrieved_chunks
     
     def run(
         self, 

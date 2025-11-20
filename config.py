@@ -40,10 +40,10 @@ class Config:
     
     # Output Configuration
     OUTPUT_DIR: str = "outputs"
-    BASELINE_CSV_FILENAME: str = "baseline_retrieval_output.csv"
-    BASELINE_FILTER_CSV_FILENAME: str = "baseline_filter_only_output.csv"
-    HYBRID_CSV_FILENAME: str = "hybrid_retrieval_output.csv"
-    HYBRID_FILTER_CSV_FILENAME: str = "hybrid_filter_only_output.csv"
+    # BASELINE_CSV_FILENAME: str = "baseline_retrieval_output.csv"
+    # BASELINE_FILTER_CSV_FILENAME: str = "baseline_filter_only_output.csv"
+    # HYBRID_CSV_FILENAME: str = "hybrid_retrieval_output.csv"
+    # HYBRID_FILTER_CSV_FILENAME: str = "hybrid_filter_only_output.csv"
     
     @classmethod
     def validate(cls) -> None:

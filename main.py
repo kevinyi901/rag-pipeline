@@ -116,12 +116,12 @@ def main():
     pipeline = RAGPipeline(use_reranking=use_reranking)
     
     # Run pipeline
-    llm_output, csv_filename = pipeline.run(query, filters)
+    llm_output, retrieved_chunks = pipeline.run(query, filters)
     
     print("\n" + "="*50)
     print("PIPELINE EXECUTION COMPLETE")
     print("="*50)
-    print(f"CSV saved to: {csv_filename}")
+    print(f"JSON for CSV: {retrieved_chunks}")
     print(f"LLM Output:\n{llm_output}")
 
 
