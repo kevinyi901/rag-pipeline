@@ -8,26 +8,26 @@ This repository contains four integrated components that work together:
 
 ```
 ┌─────────────────────┐
-│  1. Data Engineering │  PDF → Text Extraction → Parquet
-│     (ECS/Fargate)    │
+│  1. Data Engineering│  PDF → Text Extraction → Parquet
+│     (ECS/Fargate)   │
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
-│ 2. Pinecone Embedding│  Parquet → Embeddings → Vector DB
-│     (Local/Batch)    │
+│ 2.Pinecone Embedding│  Parquet → Embeddings → Vector DB
+│     (Local/Batch)   │
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
-│   3. RAG Query API   │  Query → Retrieval → LLM Response
-│      (EC2 GPU)       │
+│   3. RAG Query API  │  Query → Retrieval → LLM Response
+│      (EC2 GPU)      │
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
-│  4. Streamlit App    │  Interactive UI → User Interface
-│  (Elastic Beanstalk) │
+│  4. Streamlit App   │  Interactive UI → User Interface
+│  (Elastic Beanstalk)|
 └─────────────────────┘
 ```
 
