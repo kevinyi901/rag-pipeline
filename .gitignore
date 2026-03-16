@@ -3,6 +3,8 @@ data-engineering/temp
 **/__pycache__
 **/.python-version
 **/**.pem
+**/.DS_store
+
 # Jetbrains:
 .idea/
 
@@ -24,3 +26,5 @@ data-engineering/temp
 # Claude
 .claude
 
+# Streamlit
+streamlit-app/
