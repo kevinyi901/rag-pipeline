@@ -101,6 +101,7 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     return message.content[0].text
 
 
+# TODO: get rid of this function probs
 def generate_llm_response_filter_only_search(
     query_text: str,
     context_string: str,
