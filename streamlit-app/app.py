@@ -5,6 +5,9 @@ import pandas as pd
 import requests
 import streamlit as st
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 try:
     import boto3
     _boto3_available = True
