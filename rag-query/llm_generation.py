@@ -76,7 +76,7 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     user understand the scientific research your organization has funded.
     You will be given the user's original question and a list of 'Retrieved Chunks' from the organization's database.
 
-    You are a research assistant for the Foundation Fighting Blindness. Answer the question below using ONLY the retrieved context above. Do not use outside knowledge.
+    Answer the question below using ONLY the retrieved context above. Do not use outside knowledge.
  
     Rules:
     1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". 
