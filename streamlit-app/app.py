@@ -5,6 +5,11 @@ import pandas as pd
 import requests
 import streamlit as st
 import logging
+try:
+    import boto3
+    _boto3_available = True
+except ImportError:
+    _boto3_available = False
 
 # Setup logging at the top of your file
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +34,58 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+# =========================
+# EC2 Server Management
+# =========================
+EC2_INSTANCE_ID = os.getenv("EC2_INSTANCE_ID", "").strip()
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1").strip()
+
+
+def _ec2_client():
+    return boto3.client("ec2", region_name=AWS_REGION)
+
+
+def get_server_state() -> str:
+    """Returns the EC2 instance state name, or 'unknown' on error."""
+    if not _boto3_available or not EC2_INSTANCE_ID:
+        return "unknown"
+    try:
+        resp = _ec2_client().describe_instances(InstanceIds=[EC2_INSTANCE_ID])
+        return resp["Reservations"][0]["Instances"][0]["State"]["Name"]
+    except Exception as e:
+        logger.warning(f"Could not get EC2 state: {e}")
+        return "unknown"
+
+
+def start_server():
+    try:
+        _ec2_client().start_instances(InstanceIds=[EC2_INSTANCE_ID])
+    except Exception as e:
+        st.error(f"Failed to start server: {e}")
+
+
+def stop_server(hibernate: bool = True):
+    try:
+        _ec2_client().stop_instances(InstanceIds=[EC2_INSTANCE_ID], Hibernate=hibernate)
+    except Exception:
+        try:
+            _ec2_client().stop_instances(InstanceIds=[EC2_INSTANCE_ID])
+        except Exception as e:
+            st.error(f"Failed to stop server: {e}")
+
+
+def check_api_health() -> bool:
+    """Returns True if the RAG API /health endpoint responds 200."""
+    if not API_URL:
+        return False
+    try:
+        health_url = API_URL.rsplit("/", 1)[0] + "/health"
+        r = requests.get(health_url, timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
 
 # =========================
 # Backend
@@ -69,6 +126,44 @@ with st.sidebar:
 # Main
 # =========================
 st.title("Eyegotthis Search")
+
+# ---- EC2 server gate ----
+if EC2_INSTANCE_ID:
+    _state = get_server_state()
+
+    if _state == "stopped":
+        st.info("The search server is currently offline to save costs.")
+        if st.button("Start Server", type="primary", use_container_width=True):
+            start_server()
+            st.rerun()
+        st.caption("Estimated startup time: ~2-3 minutes")
+        st.stop()
+
+    elif _state in ("pending", "starting"):
+        with st.status("Starting server...", expanded=True):
+            st.write("EC2 instance is booting up.")
+            st.write("Checking again in 5 seconds...")
+        time.sleep(5)
+        st.rerun()
+
+    elif _state == "running":
+        if not check_api_health():
+            with st.status("Server is warming up...", expanded=True):
+                st.write("EC2 is running — loading models into GPU memory.")
+                st.write("Usually ready within 60-90 seconds.")
+            time.sleep(10)
+            st.rerun()
+
+    elif _state in ("stopping", "shutting-down"):
+        st.warning("The server is shutting down. Refresh in a moment.")
+        st.stop()
+
+    elif _state == "unknown":
+        if not _boto3_available:
+            st.error("boto3 is not installed. Run `pip install boto3` to enable server management.")
+            st.stop()
+        # EC2_INSTANCE_ID is set but state lookup failed — surface it but don't block
+        st.warning("Could not determine server state. Proceeding anyway.")
 
 # Render history
 for m in ss.messages:
