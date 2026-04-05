@@ -65,10 +65,28 @@ with st.sidebar:
         ss.messages = []
         st.rerun()
 
+
+# Testing document upload section:
+
+st.set_page_config(
+    page_title="FFB Progress Report Assistant",
+    page_icon="📄",
+    layout="wide",
+)
+
+
+# ── Tabs ───────────────────────────────────────────────────────────────────
+tab_chat, tab_upload = st.tabs(["💬 Chat", "📤 Upload Documents"])
+
+with tab_chat:
+    st.write("Chat Interface")
+with tab_upload:
+    st.write("Upload Documents Interface")
+
 # =========================
 # Main
 # =========================
-st.title("Eyegotthis Search")
+st.title("EyeSearch")
 
 # Render history
 for m in ss.messages:
