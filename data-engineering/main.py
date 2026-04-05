@@ -516,6 +516,7 @@ def build_out_path(pdf_path: Path, out_base: str, row_index: int) -> str:
     return str(Path(out_base) / stem)
 
 
+
 # ------------------------ CLI ------------------------
 
 def main():
