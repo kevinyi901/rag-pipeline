@@ -31,7 +31,7 @@ RUN mkdir -p outputs
 
 # Set environment variables for the application
 # These will be overridden by docker-compose or runtime environment
-ENV PINECONE_API_KEY="" \
+ENV PINECONE_API_KEY=""
 
 # Run the application
 EXPOSE 8000

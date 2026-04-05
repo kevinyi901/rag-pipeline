@@ -13,7 +13,7 @@ class Config:
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
     # Pinecone Configuration
-    PINECONE_INDEX_NAME: str = "test-index"
+    PINECONE_INDEX_NAME: str = "test-index-2"
     PINECONE_NAMESPACE: str = "__default__"
     VECTOR_DIMENSION: int = 1024
 
