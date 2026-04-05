@@ -106,8 +106,7 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     message = client.messages.create(
         model=Config.CLAUDE_MODEL,
         max_tokens=Config.MAX_NEW_TOKENS,
-        cache_control=[{"type": "ephemeral"}],      # invoke automatic caching
-        system=system_prompt,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_prompt}],
     )
 
@@ -151,8 +150,7 @@ def generate_llm_response_filter_only_search(
     message = client.messages.create(
         model=Config.CLAUDE_MODEL,
         max_tokens=Config.MAX_NEW_TOKENS,
-        cache_control=[{"type": "ephemeral"}],  # invoke automatic caching
-        system=system_prompt,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_prompt}],
     )
 
