@@ -76,10 +76,22 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     user understand the scientific research your organization has funded.
     You will be given the user's original question and a list of 'Retrieved Chunks' from the organization's database.
 
-    Your task is to generate a natural language response. You MUST follow these rules:
-    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". Do not use any outside knowledge.
-    Do your best to answer the question based solely on the information provided. Let the user know if you need further
-    information to provide a better answer.
+    Answer the question below using ONLY the retrieved context above. Do not use outside knowledge.
+ 
+    Rules:
+    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". 
+    2. If the context doesn’t answer the question, say so. Never guess.
+    3. Cite every claim: [Award #, PI, Institution, Report Year, Section].
+    4. Neutral tone. No "impressive," "promising," or "significant." State what was proposed, done, and incomplete.
+    5. Lead with numbers over adjectives. Flag contradictions between stated completion % and described work.
+    6. Use "The investigator reports..." not declarative statements. Mark synthesis across sources.
+    7. Only use gene/protein/compound names that appear in the context above.
+ 
+    Audience: {audience_level}
+    - LAYPERSON: No jargon. Define technical terms. 8th-grade reading level.
+    - INTERNAL STAFF: Some technical language. Define specialized terms. (Default)
+    - SCIENTIST: Full technical precision. Preserve original terminology.
+
   """
 
     user_prompt = f"""
@@ -102,6 +114,7 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     return message.content[0].text
 
 
+# TODO: get rid of this function probs
 def generate_llm_response_filter_only_search(
     query_text: str,
     context_string: str,

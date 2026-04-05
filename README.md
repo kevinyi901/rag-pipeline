@@ -1,6 +1,6 @@
-# RAG Pipeline - Legal Document Retrieval System
+# RAG Pipeline - Report Document Retrieval System
 
-A complete end-to-end RAG (Retrieval-Augmented Generation) system for legal document search and question answering. This system extracts text from PDF documents, generates hybrid embeddings, stores them in Pinecone vector database, and provides a Flask REST API for semantic search with LLaMA 3.1 8B.
+A complete end-to-end RAG (Retrieval-Augmented Generation) system for scientific progress report search and question answering. This system extracts text from PDF documents, generates hybrid embeddings, stores them in Pinecone vector database, and provides a Flask REST API for semantic search with Claude [model TBD].
 
 ## System Overview
 
@@ -21,7 +21,7 @@ This repository contains four integrated components that work together:
            ▼
 ┌─────────────────────┐
 │   3. RAG Query API  │  Query → Retrieval → LLM Response
-│      (EC2 GPU)      │
+│                     │
 └──────────┬──────────┘
            │
            ▼
@@ -31,28 +31,9 @@ This repository contains four integrated components that work together:
 └─────────────────────┘
 ```
 
-### Step 0: Municode Web Crawler (`municode-web-crawler/`)
-
-Automated web scraper for downloading county ordinance PDFs from Municode Library, providing the initial data source for the RAG pipeline.
-
-**Key Features:**
-- Selenium-based automated PDF downloads from [Municode Library](https://library.municode.com)
-- State-specific crawling (currently Georgia, easily adaptable to other states)
-- County-level filtering (excludes city-level municipalities)
-- Google Drive integration for storing downloaded PDFs
-- Robust error handling with failed URL tracking
-
-**Deployment:** Google Colab (free tier compatible)
-
-**Output:** PDFs saved to Google Drive → Upload to S3 (`s3://bucket/input/pdfs/`) → Feeds into Pipeline 1
-
-📖 **[Read Full Documentation](municode-web-crawler/README.md)**
-
----
-
 ### Pipeline 1: Data Engineering (`data-engineering/`)
 
-Extracts text from legal PDF documents stored in S3 and produces chunked Parquet files.
+Extracts text from PDF documents stored in S3 and produces chunked Parquet files.
 
 **Key Features:**
 - Layout-aware text extraction with PyMuPDF
@@ -94,7 +75,7 @@ Production Flask REST API for querying legal documents using vector search and L
   - Baseline: Dense embedding search (faster)
   - Hybrid: Dense + Sparse + Cross-encoder reranking (more accurate)
 - **Advanced Filtering:** Location, binary tags, numeric ranges
-- **GPU Optimized:** 4-bit quantization, LLaMA 3.1 8B
+- ~~**GPU Optimized:** 4-bit quantization, LLaMA 3.1 8B~~
 - **Docker Ready:** One-command deployment with GPU support
 
 **Deployment:** AWS EC2 (GPU instance) via Docker
@@ -108,8 +89,8 @@ Production Flask REST API for querying legal documents using vector search and L
 Interactive web-based frontend for the RAG system, providing a user-friendly interface for searching legal ordinances.
 
 **Key Features:**
-- **Multi-State Search:** Query across CA, FL, GA, TX counties
-- **Advanced Filtering:** Legal classifications (penalty, obligation, permission, prohibition) and readability metrics
+- ~~**Multi-State Search:** Query across CA, FL, GA, TX counties~~
+- ~~**Advanced Filtering:** Legal classifications (penalty, obligation, permission, prohibition) and readability metrics~~
 - **Interactive Results:** View chunks with metadata, scores, and full text
 - **CSV Export:** Download search results for offline analysis
 - **Real-time Updates:** Sticky search bar with chat-style interface
@@ -192,14 +173,6 @@ Interactive web-based frontend for the RAG system, providing a user-friendly int
 ### Data Flow
 
 ```
-┌──────────────────────────┐
-│  Municode Web Crawler    │ (Google Colab)
-│  - Selenium scraping     │
-│  - County detection      │
-│  - PDF downloads         │
-└──────┬───────────────────┘
-       │
-       ▼
 ┌──────────────┐
 │  PDF Files   │ (S3: input/pdfs/)
 └──────┬───────┘
@@ -276,10 +249,6 @@ Interactive web-based frontend for the RAG system, providing a user-friendly int
 ```
 rag-pipeline/
 │
-├── municode-web-crawler/       # Step 0: Web Scraping → PDFs
-│   ├── municode_crawler.ipynb # Selenium scraper notebook
-│   └── README.md               # Full documentation
-│
 ├── data-engineering/           # Pipeline 1: PDF → Parquet
 │   ├── main.py                 # Text extraction script
 │   ├── Dockerfile              # ECS container definition
@@ -349,7 +318,7 @@ rag-pipeline/
 - Docker with NVIDIA Container Toolkit
 - AWS EC2 GPU instance (g4dn.xlarge or larger)
 - Pinecone API Key
-- Hugging Face Token
+- ~~Hugging Face Token~~
 
 ### For Streamlit App
 - Python 3.11+
@@ -560,7 +529,6 @@ python -m pytest tests/  # (if tests exist)
 ## Support
 
 For detailed documentation:
-- [Municode Web Crawler Guide](municode-web-crawler/README.md)
 - [Data Engineering Guide](data-engineering/README.md)
 - [Pinecone Embedding Guide](pinecone-embedding/README.md)
 - [RAG Query API Guide](rag-query/README.md)

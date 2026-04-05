@@ -5,19 +5,18 @@ PDF → Parquet extractor (local paths OR S3 prefixes)
 - Recursively lists PDFs under an S3 prefix
 - Extracts page text with layout-aware ordering + optional OCR fallback
 - WRITES OUTPUT to:
-    s3://<bucket>/env=prod/zone=text/state=<STATE>/county=<COUNTY>/<filename>_text.parquet
-  where <STATE> and <COUNTY> are parsed from the INPUT S3 KEY.
+     s3://<bucket>/env=prod/zone=text/doc_type=<DOC_TYPE>/<filename>_text.parquet
 
 Args:
   --input : local file/folder OR s3://bucket/prefix OR s3://bucket/file.pdf
   --out   : s3://bucket/env=prod[/] (recommended) OR a local dir (for local runs)
-  --env/--zone/--state/--county : optional metadata (still written into parquet)
+  --env/--zone/--doc_type : optional metadata (still written into parquet)
   --no-ocr : disable OCR fallback
   --s3-max : limit number of PDFs processed from S3 (0 = no limit)
 
 Notes:
-- For LOCAL inputs, --out is treated as a directory/prefix and we’ll write <stem>.parquet (no state/county mapping).
-- For S3 inputs, the output path is derived from INPUT KEY’s state=... and county=...
+- For LOCAL inputs, --out is treated as a directory/prefix and we'll write <stem>.parquet.
+- For S3 inputs, the output path is built from --out base and optional --doc-type.
 """
 
 import argparse
@@ -355,8 +354,7 @@ def remove_orphan_enumerators(text: str) -> str:
 def extract_pdf_to_records(pdf_path: Path,
                            env: Optional[str],
                            zone: Optional[str],
-                           state: Optional[str],
-                           county: Optional[str]) -> List[Dict]:
+                           doc_type: Optional[str]) -> List[Dict]:
     """Extract text from every page of a PDF and return one record per page.
 
     For each page, attempts layout-aware text extraction first. Falls back to
@@ -368,12 +366,12 @@ def extract_pdf_to_records(pdf_path: Path,
         pdf_path: Path to the PDF file on disk.
         env: Environment label (e.g. 'prod') written into each record.
         zone: Zone label (e.g. 'text') written into each record.
-        state: State metadata for this document.
-        county: County metadata for this document.
+        doc_type: Document type label (e.g. 'ordinance') written into each record.
+
 
     Returns:
         List of dicts, one per page, with keys: doc_id, source_name, page,
-        text, is_ocr, char_len, sha256, extracted_at, env, zone, state, county.
+        text, is_ocr, char_len, sha256, extracted_at, env, zone, doc_type.
     """
     source_name = pdf_path.name
     doc_id = hashlib.sha1(str(pdf_path).encode("utf-8")).hexdigest()[:20]
@@ -417,8 +415,7 @@ def extract_pdf_to_records(pdf_path: Path,
                 "extracted_at": ts,
                 "env": as_str(env),
                 "zone": as_str(zone),
-                "state": as_str(state),
-                "county": as_str(county),
+                "doc_type": as_str(doc_type)
             }
             records.append(rec)
 
@@ -441,7 +438,7 @@ def write_parquet(records: List[Dict], out_path: str):
         print(f"[warn] No records to write for {out_path}")
         return
     df = pd.DataFrame.from_records(records)
-    for col in ("env", "zone", "state", "county", "source_name"):
+    for col in ("env", "zone", "doc_type", "source_name"):
         if col in df.columns:
             df[col] = df[col].astype("string")
     table = pa.Table.from_pandas(df, preserve_index=False)
@@ -527,44 +524,32 @@ def download_s3_object(bucket: str, key: str, local_dir: Path) -> Path:
 # ------------------------ Output mapping for S3 inputs ------------------------
 
 # TODO: change these functions to not be specific to their directory structure and ultimately to also not write to s3
-def parse_state_county_from_key(key: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Parse state=<state> and county=<county> from an S3 key path.
-    Returns (state, county) or (None, None) if not found.
-    """
-    state = county = None
-    parts = key.strip("/").split("/")
-    for seg in parts:
-        if seg.startswith("state="):
-            state = seg.split("=", 1)[1]
-        elif seg.startswith("county="):
-            county = seg.split("=", 1)[1]
-    return state, county
 
-def build_out_key_from_input(input_bucket: str, input_key: str, out_base: str) -> str:
+
+def build_out_key_from_input(input_bucket: str, input_key: str, out_base: str, doc_type: Optional[str]) -> str:
     """
     out_base should be like: s3://<bucket>/env=prod[/]
-    Builds: s3://<same-bucket-or-out_base bucket>/env=prod/zone=text/state=STATE/county=COUNTY/<filename>_text.parquet
+    Builds: s3://<bucket>/env=prod/zone=text/doc_type=<DOC_TYPE>/<filename>_text.parquet
     """
     # Decide output bucket from out_base
     if not out_base.startswith("s3://"):
-        raise ValueError("--out must be s3://... when using S3 input to auto-map env/state/county")
-    out_bucket, out_key_base = split_s3_uri(out_base)
-
+        raise ValueError("--out must be s3://... when using S3 input")
+    
     # Ensure env=prod root in out_key_base (user might pass s3://bucket/env=prod or s3://bucket/env=prod/)
+    out_bucket, out_key_base = split_s3_uri(out_base)
+    
+    # Pull from INPUT key
     out_key_base = out_key_base.strip("/")
     if not out_key_base:
         raise ValueError("Provide an --out like s3://<bucket>/env=prod/")
-    # Pull state/county from INPUT key
-    state, county = parse_state_county_from_key(input_key)
-    if not state or not county:
-        raise ValueError(f"Could not parse state/county from input key: {input_key}")
-
+    
     # Build output key
     filename = os.path.basename(input_key)
     stem = os.path.splitext(filename)[0] + "_text.parquet"
-    out_key = f"{out_key_base}/zone=text/state={state}/county={county}/{stem}"
+    doc_type_seg = f"doc_type={doc_type}/" if doc_type else ""
+    out_key = f"{out_key_base}/zone=text/{doc_type_seg}{stem}"
     return f"s3://{out_bucket}/{out_key}"
+
 
 # ------------------------ CLI ------------------------
 
@@ -573,8 +558,8 @@ def main():
 
     Supports two input modes:
       - Local: a file or directory of PDFs, output to a local dir or S3.
-      - S3: a single key or prefix of PDFs, output auto-mapped by state/county
-        parsed from the input key path.
+       - S3: a single key or prefix of PDFs, output built from --out base
+        and optional --doc-type.
 
     Downloads S3 PDFs to a temp directory, processes each sequentially, and
     cleans up the temp directory on exit.
@@ -584,9 +569,8 @@ def main():
     ap.add_argument("--out",   required=True, help="For S3 input, use s3://bucket/env=prod[/]; for local input, a dir or s3 prefix")
     ap.add_argument("--env",   default=None)
     ap.add_argument("--zone",  default=None)
-    ap.add_argument("--state", default=None)
-    ap.add_argument("--county", default=None)
-    ap.add_argument("--no-ocr", action="store_true", help="Disable OCR fallback entirely")
+    ap.add_argument("--no-ocr", action="store_true")
+    ap.add_argument("--doc-type", default=None, help="Document type (e.g. ordinance, report)")
     ap.add_argument("--s3-max", type=int, default=0, help="Limit PDFs processed from S3 prefix (0 = no limit)")
     args = ap.parse_args()
 
@@ -650,12 +634,12 @@ def main():
             print(f"[info] extracting: {local_pdf}")
             try:
                 # Extract records
-                records = extract_pdf_to_records(local_pdf, args.env, args.zone, args.state, args.county)
+                records = extract_pdf_to_records(local_pdf, args.env, args.zone, args.doc_type)
 
                 # Decide output path
                 if src_bucket and src_key:
                     # S3 input: build out path from input key + out base (env=prod)
-                    out_path = build_out_key_from_input(src_bucket, src_key, args.out)
+                    out_path = build_out_key_from_input(src_bucket, src_key, args.out, args.doc_type)
                 else:
                     # Local input: generic behavior
                     stem = Path(local_pdf).stem + "_text.parquet"
