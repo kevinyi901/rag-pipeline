@@ -17,7 +17,9 @@ Metrics computed:
 """
 
 import json
+import os
 import re
+import sys
 import time
 from typing import Optional
 import pandas as pd
@@ -28,7 +30,7 @@ from tqdm import tqdm
 
 # Configuration
 RETRIEVAL_ENDPOINT = "http://3.234.136.27:8000/query"
-NIMS_API_KEY = ""
+NIMS_API_KEY = os.environ.get("NIMS_API_KEY", "")
 NIMS_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
 MODEL_NAME = "nvidia/llama-3.1-nemotron-nano-8b-v1"  # Nemotron Nano model via NIMs
 
@@ -829,9 +831,20 @@ def main():
         choices=["hybrid", "baseline"],
         help="Retrieval mode: 'hybrid' or 'baseline'"
     )
-    
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate dataset and preview prompts without making any API calls"
+    )
+
     args = parser.parse_args()
-    
+
+    # Validate API key early (skip for dry runs)
+    if not args.dry_run and not NIMS_API_KEY:
+        print("ERROR: NIMS_API_KEY is not set.")
+        print("  Set it with: export NIMS_API_KEY='your-key-here'")
+        sys.exit(1)
+
     # Load dataset
     print(f"Loading evaluation dataset from {args.input}...")
     if args.input.endswith('.xlsx') or args.input.endswith('.xls'):
@@ -845,7 +858,51 @@ def main():
     if args.limit:
         df = df.head(args.limit)
         print(f"Limited to {len(df)} queries")
-    
+
+    # --- Dry run: validate CSV and preview prompts, no API calls ---
+    if args.dry_run:
+        required_cols = ['Disease_Type', 'Research_Area', 'Difficulty', 'Question', 'Answer', 'Document_ID']
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            print(f"ERROR: CSV is missing required columns: {missing}")
+            sys.exit(1)
+
+        pos = df[df['Answer'].str.upper() != 'NO_LAW_EXISTS']
+        neg = df[df['Answer'].str.upper() == 'NO_LAW_EXISTS']
+        print(f"\nDataset valid: {len(pos)} positive tests, {len(neg)} negative tests")
+        print(f"Difficulty breakdown: {df['Difficulty'].value_counts().to_dict()}")
+        print(f"Disease types:        {df['Disease_Type'].unique().tolist()}")
+        print(f"Research areas:       {df['Research_Area'].unique().tolist()}")
+
+        print("\n--- SAMPLE PROMPT (first positive row) ---")
+        sample = pos.iloc[0]
+        prompt = create_evaluation_prompt(
+            question=sample['Question'],
+            golden_answer=sample['Answer'][:300],
+            golden_section=sample.get('Document_ID', ''),
+            retrieved_chunks=[{"chunk_text": "<retrieved text would appear here>", "section": sample.get('Document_ID', '')}],
+            is_negative_test=False
+        )
+        print(prompt[:1500])
+        print("...(truncated)")
+
+        if len(neg) > 0:
+            print("\n--- SAMPLE PROMPT (first negative row) ---")
+            sample_neg = neg.iloc[0]
+            neg_prompt = create_evaluation_prompt(
+                question=sample_neg['Question'],
+                golden_answer='',
+                golden_section='',
+                retrieved_chunks=[],
+                is_negative_test=True,
+                system_response="<system response would appear here>"
+            )
+            print(neg_prompt[:800])
+            print("...(truncated)")
+
+        print("\nDry run complete. No API calls were made.")
+        return
+
     # Evaluate each query
     results = []
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="Evaluating"):
