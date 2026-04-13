@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """
-Legal Retrieval Engine Evaluator
+Research Funding Retrieval Evaluator
 
-Evaluates a legal retrieval engine using LLM-as-a-Judge methodology with
+Evaluates a research funding retrieval engine using LLM-as-a-Judge methodology with
 NVIDIA Nemotron-Nano-9B-v2 model through the NIMs API.
 
+Designed for the Foundation Fighting Blindness (FFB) use case: evaluating
+retrieval quality for research funding inquiries (grants, clinical trials,
+research focus areas, and eligibility requirements).
+
 Metrics computed:
-- Top-5 Recall: Whether the correct law appears in top 5 results
+- Top-5 Recall: Whether the correct document appears in top 5 results
 - MRR (Mean Reciprocal Rank): 1/rank of first correct result
 - Chunk Coverage: How complete the retrieved chunk is
-- Metadata Accuracy: Correctness of Penalty/Fine, Prohibition, Obligation, Permission flags
+- Metadata Accuracy: Correctness of Funding Available, Clinical Trial, Research Focus, Eligibility flags
 """
 
 import json
+import os
 import re
+import sys
 import time
 from typing import Optional
 import pandas as pd
@@ -24,7 +30,7 @@ from tqdm import tqdm
 
 # Configuration
 RETRIEVAL_ENDPOINT = "http://3.234.136.27:8000/query"
-NIMS_API_KEY = ""
+NIMS_API_KEY = os.environ.get("NIMS_API_KEY", "")
 NIMS_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
 MODEL_NAME = "nvidia/llama-3.1-nemotron-nano-8b-v1"  # Nemotron Nano model via NIMs
 
@@ -63,61 +69,61 @@ def sanitize_for_csv(text: str) -> str:
 
 @dataclass
 class EvaluationResult:
-    """Result of evaluating a single query."""
+    """Result of evaluating a single research funding query."""
     query_id: int
-    state: str
-    county: str
+    disease_type: str
+    research_area: str
     difficulty: str
     question: str
-    
+
     # System's LLM-generated response
     system_response: str = ""
-    
-    # For negative tests: did system correctly say no law exists?
+
+    # For negative tests: did system correctly say no document exists?
     is_negative_test: bool = False
-    system_says_no_law: Optional[bool] = None  # True if system correctly says no relevant law
+    system_says_no_law: Optional[bool] = None  # True if system correctly says no relevant document
     negative_test_correct: Optional[bool] = None
-    
+
     # Retrieval metrics (for positive tests)
     found_in_top5: bool = False
     rank: int = 0  # 0 means not found
     chunk_coverage: float = 0.0  # 0.0 to 1.0
-    
-    # Section comparison (golden | retrieved side by side)
+
+    # Document/section comparison (golden | retrieved side by side)
     golden_section: str = ""
-    retrieved_section: str = ""  # Section of the matched chunk
-    
+    retrieved_section: str = ""  # Document ID / section of the matched chunk
+
     # All top 5 retrieved sections (for analysis)
     retrieved_section_1: str = ""
     retrieved_section_2: str = ""
     retrieved_section_3: str = ""
     retrieved_section_4: str = ""
     retrieved_section_5: str = ""
-    
+
     # Chunk comparison (golden | retrieved side by side)
     golden_chunk: str = ""
     retrieved_chunk: str = ""
-    
-    # Penalty/Fine flag comparison
-    golden_penalty_fine: Optional[bool] = None
-    retrieved_penalty_fine: Optional[bool] = None
-    penalty_fine_correct: Optional[bool] = None
-    
-    # Prohibition flag comparison
-    golden_prohibition: Optional[bool] = None
-    retrieved_prohibition: Optional[bool] = None
-    prohibition_correct: Optional[bool] = None
-    
-    # Obligation flag comparison
-    golden_obligation: Optional[bool] = None
-    retrieved_obligation: Optional[bool] = None
-    obligation_correct: Optional[bool] = None
-    
-    # Permission flag comparison
-    golden_permission: Optional[bool] = None
-    retrieved_permission: Optional[bool] = None
-    permission_correct: Optional[bool] = None
-    
+
+    # Funding Available flag comparison
+    golden_funding_available: Optional[bool] = None
+    retrieved_funding_available: Optional[bool] = None
+    funding_available_correct: Optional[bool] = None
+
+    # Clinical Trial flag comparison
+    golden_clinical_trial: Optional[bool] = None
+    retrieved_clinical_trial: Optional[bool] = None
+    clinical_trial_correct: Optional[bool] = None
+
+    # Research Focus flag comparison
+    golden_research_focus: Optional[bool] = None
+    retrieved_research_focus: Optional[bool] = None
+    research_focus_correct: Optional[bool] = None
+
+    # Eligibility flag comparison
+    golden_eligibility: Optional[bool] = None
+    retrieved_eligibility: Optional[bool] = None
+    eligibility_correct: Optional[bool] = None
+
     # Overall metrics
     metadata_accuracy: Optional[float] = None  # None if not found in top 5
     llm_reasoning: str = ""  # LLM's explanation
@@ -125,33 +131,35 @@ class EvaluationResult:
 
 
 
-def query_retrieval_engine(question: str, state: str, county: str, mode: str = "hybrid") -> dict:
+def query_retrieval_engine(
+    question: str,
+    disease_type: str,
+    research_area: str,
+    funding_source: str = "",
+    mode: str = "hybrid"
+) -> dict:
     """
-    Query the legal retrieval engine.
-    
+    Query the research funding retrieval engine.
+
     Args:
         question: The query text
-        state: State code (e.g., "CA", "GA")
-        county: County name (e.g., "Alameda")
+        disease_type: Disease/condition type (e.g., "Stargardt", "Retinitis_Pigmentosa")
+        research_area: Research domain (e.g., "Gene_Therapy", "Stem_Cell")
+        funding_source: Funding body filter (e.g., "NIH", "FFB") — optional
         mode: Retrieval mode - "hybrid" or "baseline"
-    
+
     Returns the API response containing top-5 retrieved chunks.
     """
-    # Format county name for API (convert to lowercase with hyphens)
-    formatted_county = county.lower().replace(" ", "-")
-    if not formatted_county.endswith("-county"):
-        formatted_county = f"{formatted_county}-county"
-    
+    filters: dict = {
+        "disease_types": [disease_type] if disease_type else [],
+        "research_areas": [research_area] if research_area else [],
+    }
+    if funding_source:
+        filters["funding_sources"] = [funding_source]
+
     payload = {
         "query": question,
-        "filters": {
-            "locations": [
-                {
-                    "state": state.lower(),
-                    "county": [formatted_county]
-                }
-            ]
-        },
+        "filters": filters,
         "mode": mode
     }
     
@@ -198,32 +206,32 @@ Text: {chunk_text[:2000]}
     
     if is_negative_test:
         # Special prompt for negative test cases - evaluate the SYSTEM'S RESPONSE
-        prompt = f"""You are a legal retrieval evaluation expert. This is a NEGATIVE TEST - the question asks about something for which NO relevant law should exist.
+        prompt = f"""You are a research funding retrieval evaluation expert. This is a NEGATIVE TEST - the question asks about something for which NO relevant funding document should exist.
 
 ## Query
 Question: {question}
 
 ## Expected Result
-There should be NO relevant law for this query. The question asks about something fictional, hypothetical, or not covered by any real municipal ordinance.
+There should be NO relevant funding document for this query. The question asks about something fictional, hypothetical, or not covered by any real research funding opportunity.
 
 ## System's LLM-Generated Response
 {system_response}
 
 ## Your Evaluation Task
-Evaluate whether the SYSTEM'S RESPONSE acknowledges that no relevant law exists for this specific query.
+Evaluate whether the SYSTEM'S RESPONSE acknowledges that no relevant funding document exists for this specific query.
 
 The response is CORRECT if the system:
-- Says "no law exists" or "no regulations found" for the specific topic
-- Says "the law does not mention" or "does not address" the specific topic
+- Says "no funding exists" or "no grants found" for the specific topic
+- Says "the document does not mention" or "does not address" the specific topic
 - Says "information was not found" for the query
 - Acknowledges the topic is not covered, even if it provides some tangentially related information afterward
 
 The response is INCORRECT only if the system:
-- Claims to have found a law that DIRECTLY addresses the fictional/hypothetical query
-- Provides legal guidance as if a specific law exists for the topic
-- Does NOT acknowledge that no relevant law exists
+- Claims to have found a funding opportunity that DIRECTLY addresses the fictional/hypothetical query
+- Provides funding guidance as if a specific grant exists for the topic
+- Does NOT acknowledge that no relevant document exists
 
-IMPORTANT: If the system says something like "The law does not explicitly mention X" or "No regulations specifically related to X" - this counts as CORRECT, even if the system then mentions some related but different laws.
+IMPORTANT: If the system says something like "No funding specifically related to X was found" or "The documents do not explicitly mention X" - this counts as CORRECT, even if the system then mentions some related but different programs.
 
 Provide your evaluation in the following JSON format:
 
@@ -238,34 +246,34 @@ Provide your evaluation in the following JSON format:
 Respond ONLY with the JSON object, no additional text."""
     else:
         # Standard prompt for positive test cases
-        prompt = f"""You are a legal retrieval evaluation expert. Evaluate the retrieval results for the following query.
+        prompt = f"""You are a research funding retrieval evaluation expert. Evaluate the retrieval results for the following query about research funding for vision-related diseases (Foundation Fighting Blindness context).
 
 ## Query
 Question: {question}
 
 ## Golden Truth (Expected Answer)
-Section Reference: {golden_section}
-Law Text: {golden_answer[:3000]}
+Document Reference: {golden_section}
+Document Text: {golden_answer[:3000]}
 
 ## Retrieved Chunks (Top 5)
 {chunks_text}
 
 ## Metadata Flag Definitions
-You must analyze the text and determine if each flag applies. Use your legal expertise to understand context, not just keyword matching:
+You must analyze the text and determine if each flag applies. Use your research funding expertise to understand context, not just keyword matching:
 
-1. **Penalty/Fine Flag (Y/N)**: Does the text describe monetary penalties, fines, fees as punishment, imprisonment, or other punitive consequences for violations?
+1. **Funding Available Flag (Y/N)**: Does the text describe grants, awards, funding opportunities, RFAs (Request for Applications), or available financial support for research? Look for language like "grant," "award," "funding available," "RFA," "R01," "R21," "FOA," or similar funding language.
 
-2. **Prohibition Flag (Y/N)**: Does the text prohibit certain actions? Look for language like "may not," "shall not," "prohibited," "unlawful," "it shall be unlawful," "no person shall," or similar prohibitive language.
+2. **Clinical Trial Flag (Y/N)**: Does the text relate to clinical trials or patient-facing research? Look for language like "Phase 1/2/3," "patient recruitment," "clinical study," "IND," "trial enrollment," "human subjects," or similar clinical research language.
 
-3. **Obligation Flag (Y/N)**: Does the text impose mandatory requirements or duties? Look for language like "must," "shall" (when imposing a duty, NOT "shall not"), "required," "duty to," or similar obligatory language.
+3. **Research Focus Flag (Y/N)**: Does the text describe a specific scientific methodology or research domain? Look for language like "gene therapy," "CRISPR," "stem cell," "optogenetics," "retinal implant," "natural history study," "biomarker," or similar scientific focus language.
 
-4. **Permission Flag (Y/N)**: Does the text grant permission or authorization? Look for language like "may" (when granting permission, NOT "may not"), "authorized," "permitted," "allowed," "entitled to," or similar permissive language.
+4. **Eligibility Flag (Y/N)**: Does the text describe requirements or criteria for who/what qualifies? Look for language like "eligibility criteria," "must have," "applicants must," "required qualifications," "inclusion criteria," "principal investigator must," or similar qualification language.
 
 ## Your Evaluation Task
-First, check if ANY retrieved chunk contains the ACTUAL TEXT from the golden truth section.
+First, check if ANY retrieved chunk contains the ACTUAL TEXT from the golden truth document.
 
-STEP 1: Compare each chunk's SECTION NUMBER with the golden truth section reference.
-STEP 2: If a chunk has the SAME section number, verify it contains the SAME TEXT (not just references to it).
+STEP 1: Compare each chunk's DOCUMENT ID / SECTION with the golden truth document reference.
+STEP 2: If a chunk has the SAME document reference, verify it contains the SAME TEXT (not just references to it).
 STEP 3: If NO chunk matches, set found_in_top5 to FALSE, rank to 0, and matching_chunk_index to null.
 
 Provide your evaluation in JSON format:
@@ -277,24 +285,24 @@ Provide your evaluation in JSON format:
     "chunk_coverage": 0.0,
     "matching_chunk_index": null,
     "golden_metadata": {{
-        "penalty_fine": true/false,
-        "prohibition": true/false,
-        "obligation": true/false,
-        "permission": true/false
+        "funding_available": true/false,
+        "clinical_trial": true/false,
+        "research_focus": true/false,
+        "eligibility": true/false
     }},
     "retrieved_metadata": {{
-        "penalty_fine": false,
-        "prohibition": false,
-        "obligation": false,
-        "permission": false
+        "funding_available": false,
+        "clinical_trial": false,
+        "research_focus": false,
+        "eligibility": false
     }},
     "reasoning": "Explain which chunks you checked and why none/one matched"
 }}
 ```
 
 ### CRITICAL RULES:
-- **found_in_top5 = true** ONLY if a chunk contains the SAME SECTION and SAME TEXT as golden truth
-- **found_in_top5 = false** if chunks only MENTION the section number but have DIFFERENT content
+- **found_in_top5 = true** ONLY if a chunk contains the SAME DOCUMENT REFERENCE and SAME TEXT as golden truth
+- **found_in_top5 = false** if chunks only MENTION the document reference but have DIFFERENT content
 - **matching_chunk_index = null** when found_in_top5 is false
 - **rank = 0** when found_in_top5 is false
 
@@ -321,7 +329,7 @@ def call_llm_judge(prompt: str) -> dict:
         "messages": [
             {
                 "role": "system",
-                "content": "You are an expert legal retrieval evaluator. Respond only with valid JSON."
+                "content": "You are an expert research funding retrieval evaluator. Respond only with valid JSON."
             },
             {
                 "role": "user",
@@ -346,33 +354,60 @@ def call_llm_judge(prompt: str) -> dict:
 
 
 def normalize_section(section: str) -> str:
-    """Normalize section reference for comparison."""
+    """
+    Normalize a document/section reference for comparison.
+
+    Handles both numeric municipal-code style IDs (legacy) and
+    alphanumeric research-document IDs such as:
+      - NEI-RFA-EY-23-001
+      - NCT03496012
+      - FFB-IIRA-2023
+      - PA-22-196
+    """
     if not section:
         return ""
-    # Remove common variations: "5.08.010 - Running" vs "5.08.010. Running"
-    # Extract just the numeric section code
-    import re
-    # Match patterns like "5.08.010", "Sec. 78-38", etc.
-    match = re.search(r'[\d]+[.\-][\d]+[.\-]?[\d]*', str(section))
-    if match:
-        return match.group(0).replace('-', '.').replace('..', '.')
-    return str(section).lower().strip()
+    s = str(section).strip()
+
+    su = s.upper()
+
+    # Hyphen/underscore-separated alphanumeric IDs (check first to avoid
+    # extracting embedded numbers like "23-001" from "NEI-RFA-EY-23-001").
+    # Matches: NEI-RFA-EY-23-001, FFB-IIRA-2023, PA-22-196, HHSN263201200001C
+    doc_match = re.search(r'\b[A-Z][A-Z0-9]*(?:[-_][A-Z0-9]+)+\b', su)
+    if doc_match:
+        return doc_match.group(0)
+
+    # Compact alphanumeric IDs with no separator: NCT03496012, HHSN263201200001C
+    # Pattern: starts with 2+ letters, followed by 4+ digits, optional trailing letters
+    compact_match = re.search(r'\b[A-Z]{2,}\d{4,}[A-Z0-9]*\b', su)
+    if compact_match:
+        return compact_match.group(0)
+
+    # Numeric section code: "5.08.010", "Sec. 78-38"
+    numeric_match = re.search(r'\d+[.\-]\d+[.\-]?\d*', s)
+    if numeric_match:
+        return numeric_match.group(0).replace('-', '.').replace('..', '.')
+
+    return su
 
 
 def find_matching_chunk(golden_section: str, chunks: list) -> tuple:
     """
-    Find a chunk that matches the golden section programmatically.
+    Find a chunk that matches the golden document/section reference programmatically.
     Returns (found, rank, matching_chunk) or (False, 0, None).
     """
     golden_norm = normalize_section(golden_section)
-    
+
     for i, chunk in enumerate(chunks[:5], 1):
-        chunk_section = chunk.get("section", chunk.get("title", ""))
+        chunk_section = chunk.get("section",
+                        chunk.get("document_id",
+                        chunk.get("doc_id",
+                        chunk.get("title", ""))))
         chunk_norm = normalize_section(chunk_section)
-        
+
         if golden_norm and chunk_norm and golden_norm == chunk_norm:
             return (True, i, chunk)
-    
+
     return (False, 0, None)
 
 
@@ -413,30 +448,31 @@ def evaluate_single_query(
         mode: Retrieval mode - "hybrid" or "baseline"
     """
     golden_answer = row['Answer']
-    golden_section = row['Section']
-    
-    # Detect negative test cases (questions where no law should exist)
+    golden_section = row.get('Document_ID', row.get('Section', ''))
+
+    # Detect negative test cases (questions where no document should exist)
     is_negative_test = (
-        golden_answer.upper() == "NO_LAW_EXISTS" or 
+        str(golden_answer).upper() == "NO_LAW_EXISTS" or
         str(golden_section).upper() == "N/A" or
         str(golden_section).upper() == "NAN"
     )
-    
+
     result = EvaluationResult(
         query_id=query_id,
-        state=row['State'],
-        county=row['County'],
-        difficulty=row['Difficulty Column'],
+        disease_type=row.get('Disease_Type', row.get('State', '')),
+        research_area=row.get('Research_Area', row.get('County', '')),
+        difficulty=row.get('Difficulty', row.get('Difficulty Column', '')),
         question=row['Question'],
-        golden_section=golden_section if not is_negative_test else "NO_LAW_EXISTS",
-        golden_chunk=sanitize_for_csv(golden_answer) if not is_negative_test else "NO_LAW_EXISTS"
+        golden_section=golden_section if not is_negative_test else "NO_DOCUMENT_EXISTS",
+        golden_chunk=sanitize_for_csv(golden_answer) if not is_negative_test else "NO_DOCUMENT_EXISTS"
     )
-    
+
     # Step 1: Query the retrieval engine
     retrieval_response = query_retrieval_engine(
         row['Question'],
-        row['State'],
-        row['County'],
+        row.get('Disease_Type', row.get('State', '')),
+        row.get('Research_Area', row.get('County', '')),
+        funding_source=row.get('Funding_Source', ''),
         mode=mode
     )
     
@@ -450,8 +486,12 @@ def evaluate_single_query(
               retrieval_response.get("chunks",
               retrieval_response.get("documents", [])))
     
-    # Capture the system's LLM-generated response
-    system_response = retrieval_response.get("response", "")
+    # Capture the system's LLM-generated response (try common field names)
+    system_response = (retrieval_response.get("response") or
+                       retrieval_response.get("answer") or
+                       retrieval_response.get("llm_response") or
+                       retrieval_response.get("generated_text") or
+                       retrieval_response.get("output") or "")
     result.system_response = sanitize_for_csv(system_response)
     result.is_negative_test = is_negative_test
     
@@ -580,42 +620,41 @@ def evaluate_single_query(
         result.chunk_coverage = parsed.get("chunk_coverage", 0.0)
     
     # Extract golden metadata flags (determined by LLM)
-    # Handle both "penalty_fine" and "penalty/fine" variants
     golden_meta = parsed.get("golden_metadata", {})
-    result.golden_penalty_fine = golden_meta.get("penalty_fine", golden_meta.get("penalty/fine", False))
-    result.golden_prohibition = golden_meta.get("prohibition", False)
-    result.golden_obligation = golden_meta.get("obligation", False)
-    result.golden_permission = golden_meta.get("permission", False)
-    
+    result.golden_funding_available = golden_meta.get("funding_available", False)
+    result.golden_clinical_trial = golden_meta.get("clinical_trial", False)
+    result.golden_research_focus = golden_meta.get("research_focus", False)
+    result.golden_eligibility = golden_meta.get("eligibility", False)
+
     # Extract retrieved metadata flags (determined by LLM)
     retrieved_meta = parsed.get("retrieved_metadata", {})
-    result.retrieved_penalty_fine = retrieved_meta.get("penalty_fine", retrieved_meta.get("penalty/fine"))
-    result.retrieved_prohibition = retrieved_meta.get("prohibition")
-    result.retrieved_obligation = retrieved_meta.get("obligation")
-    result.retrieved_permission = retrieved_meta.get("permission")
-    
+    result.retrieved_funding_available = retrieved_meta.get("funding_available")
+    result.retrieved_clinical_trial = retrieved_meta.get("clinical_trial")
+    result.retrieved_research_focus = retrieved_meta.get("research_focus")
+    result.retrieved_eligibility = retrieved_meta.get("eligibility")
+
     # Only compute flag correctness if the answer was found in top 5
     if result.found_in_top5:
         # Compare LLM's assessment of golden vs retrieved flags
-        if result.retrieved_penalty_fine is not None and result.golden_penalty_fine is not None:
-            result.penalty_fine_correct = (result.retrieved_penalty_fine == result.golden_penalty_fine)
-        if result.retrieved_prohibition is not None and result.golden_prohibition is not None:
-            result.prohibition_correct = (result.retrieved_prohibition == result.golden_prohibition)
-        if result.retrieved_obligation is not None and result.golden_obligation is not None:
-            result.obligation_correct = (result.retrieved_obligation == result.golden_obligation)
-        if result.retrieved_permission is not None and result.golden_permission is not None:
-            result.permission_correct = (result.retrieved_permission == result.golden_permission)
-        
+        if result.retrieved_funding_available is not None and result.golden_funding_available is not None:
+            result.funding_available_correct = (result.retrieved_funding_available == result.golden_funding_available)
+        if result.retrieved_clinical_trial is not None and result.golden_clinical_trial is not None:
+            result.clinical_trial_correct = (result.retrieved_clinical_trial == result.golden_clinical_trial)
+        if result.retrieved_research_focus is not None and result.golden_research_focus is not None:
+            result.research_focus_correct = (result.retrieved_research_focus == result.golden_research_focus)
+        if result.retrieved_eligibility is not None and result.golden_eligibility is not None:
+            result.eligibility_correct = (result.retrieved_eligibility == result.golden_eligibility)
+
         # Calculate overall metadata accuracy
         metadata_scores = []
-        if result.penalty_fine_correct is not None:
-            metadata_scores.append(1.0 if result.penalty_fine_correct else 0.0)
-        if result.prohibition_correct is not None:
-            metadata_scores.append(1.0 if result.prohibition_correct else 0.0)
-        if result.obligation_correct is not None:
-            metadata_scores.append(1.0 if result.obligation_correct else 0.0)
-        if result.permission_correct is not None:
-            metadata_scores.append(1.0 if result.permission_correct else 0.0)
+        if result.funding_available_correct is not None:
+            metadata_scores.append(1.0 if result.funding_available_correct else 0.0)
+        if result.clinical_trial_correct is not None:
+            metadata_scores.append(1.0 if result.clinical_trial_correct else 0.0)
+        if result.research_focus_correct is not None:
+            metadata_scores.append(1.0 if result.research_focus_correct else 0.0)
+        if result.eligibility_correct is not None:
+            metadata_scores.append(1.0 if result.eligibility_correct else 0.0)
         
         if metadata_scores:
             result.metadata_accuracy = sum(metadata_scores) / len(metadata_scores)
@@ -669,18 +708,18 @@ def compute_aggregate_metrics(results: list[EvaluationResult]) -> dict:
         # Per-flag accuracy
         found_results = [r for r in positive_results if r.found_in_top5]
         n_found = len(found_results)
-        
-        penalty_correct = sum(1 for r in found_results if r.penalty_fine_correct is True)
-        prohibition_correct = sum(1 for r in found_results if r.prohibition_correct is True)
-        obligation_correct = sum(1 for r in found_results if r.obligation_correct is True)
-        permission_correct = sum(1 for r in found_results if r.permission_correct is True)
+
+        funding_correct = sum(1 for r in found_results if r.funding_available_correct is True)
+        clinical_trial_correct = sum(1 for r in found_results if r.clinical_trial_correct is True)
+        research_focus_correct = sum(1 for r in found_results if r.research_focus_correct is True)
+        eligibility_correct = sum(1 for r in found_results if r.eligibility_correct is True)
     else:
         top5_recall = None
         mrr = None
         avg_coverage = None
         avg_metadata_accuracy = None
         n_found = 0
-        penalty_correct = prohibition_correct = obligation_correct = permission_correct = 0
+        funding_correct = clinical_trial_correct = research_focus_correct = eligibility_correct = 0
     
     # === NEGATIVE TEST METRICS ===
     # Evaluate based on whether system correctly said no law exists
@@ -734,10 +773,10 @@ def compute_aggregate_metrics(results: list[EvaluationResult]) -> dict:
         "avg_chunk_coverage": avg_coverage,
         "avg_metadata_accuracy": avg_metadata_accuracy,
         
-        "penalty_fine_accuracy": penalty_correct / n_found if n_found > 0 else None,
-        "prohibition_accuracy": prohibition_correct / n_found if n_found > 0 else None,
-        "obligation_accuracy": obligation_correct / n_found if n_found > 0 else None,
-        "permission_accuracy": permission_correct / n_found if n_found > 0 else None,
+        "funding_available_accuracy": funding_correct / n_found if n_found > 0 else None,
+        "clinical_trial_accuracy": clinical_trial_correct / n_found if n_found > 0 else None,
+        "research_focus_accuracy": research_focus_correct / n_found if n_found > 0 else None,
+        "eligibility_accuracy": eligibility_correct / n_found if n_found > 0 else None,
         "queries_with_answer_in_top5": n_found,
         
         # Negative test metrics
@@ -758,15 +797,15 @@ def main():
     """
     import argparse
     
-    parser = argparse.ArgumentParser(description="Legal Retrieval Engine Evaluator")
+    parser = argparse.ArgumentParser(description="Research Funding Retrieval Evaluator")
     parser.add_argument(
         "--input", "-i",
-        default="eval_dataset_final.csv",
+        default="eval_dataset_research_funding.csv",
         help="Input evaluation dataset (CSV or Excel)"
     )
     parser.add_argument(
         "--output", "-o",
-        default="evaluation_results.csv",
+        default="research_funding_results.csv",
         help="Output file for per-query results"
     )
     parser.add_argument(
@@ -792,9 +831,20 @@ def main():
         choices=["hybrid", "baseline"],
         help="Retrieval mode: 'hybrid' or 'baseline'"
     )
-    
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate dataset and preview prompts without making any API calls"
+    )
+
     args = parser.parse_args()
-    
+
+    # Validate API key early (skip for dry runs)
+    if not args.dry_run and not NIMS_API_KEY:
+        print("ERROR: NIMS_API_KEY is not set.")
+        print("  Set it with: export NIMS_API_KEY='your-key-here'")
+        sys.exit(1)
+
     # Load dataset
     print(f"Loading evaluation dataset from {args.input}...")
     if args.input.endswith('.xlsx') or args.input.endswith('.xls'):
@@ -808,7 +858,51 @@ def main():
     if args.limit:
         df = df.head(args.limit)
         print(f"Limited to {len(df)} queries")
-    
+
+    # --- Dry run: validate CSV and preview prompts, no API calls ---
+    if args.dry_run:
+        required_cols = ['Disease_Type', 'Research_Area', 'Difficulty', 'Question', 'Answer', 'Document_ID']
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            print(f"ERROR: CSV is missing required columns: {missing}")
+            sys.exit(1)
+
+        pos = df[df['Answer'].str.upper() != 'NO_LAW_EXISTS']
+        neg = df[df['Answer'].str.upper() == 'NO_LAW_EXISTS']
+        print(f"\nDataset valid: {len(pos)} positive tests, {len(neg)} negative tests")
+        print(f"Difficulty breakdown: {df['Difficulty'].value_counts().to_dict()}")
+        print(f"Disease types:        {df['Disease_Type'].unique().tolist()}")
+        print(f"Research areas:       {df['Research_Area'].unique().tolist()}")
+
+        print("\n--- SAMPLE PROMPT (first positive row) ---")
+        sample = pos.iloc[0]
+        prompt = create_evaluation_prompt(
+            question=sample['Question'],
+            golden_answer=sample['Answer'][:300],
+            golden_section=sample.get('Document_ID', ''),
+            retrieved_chunks=[{"chunk_text": "<retrieved text would appear here>", "section": sample.get('Document_ID', '')}],
+            is_negative_test=False
+        )
+        print(prompt[:1500])
+        print("...(truncated)")
+
+        if len(neg) > 0:
+            print("\n--- SAMPLE PROMPT (first negative row) ---")
+            sample_neg = neg.iloc[0]
+            neg_prompt = create_evaluation_prompt(
+                question=sample_neg['Question'],
+                golden_answer='',
+                golden_section='',
+                retrieved_chunks=[],
+                is_negative_test=True,
+                system_response="<system response would appear here>"
+            )
+            print(neg_prompt[:800])
+            print("...(truncated)")
+
+        print("\nDry run complete. No API calls were made.")
+        return
+
     # Evaluate each query
     results = []
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="Evaluating"):
@@ -845,7 +939,7 @@ def main():
     
     # Print summary
     print("\n" + "="*60)
-    print("EVALUATION SUMMARY")
+    print("RESEARCH FUNDING EVALUATION SUMMARY")
     print("="*60)
     print(f"Total Queries:       {metrics.get('total_queries', 'N/A')}")
     print(f"Valid Queries:       {metrics.get('valid_queries', 'N/A')}")
@@ -855,7 +949,7 @@ def main():
     n_positive = metrics.get('positive_test_count', 0)
     if n_positive > 0:
         print()
-        print(f"=== POSITIVE TESTS (laws that should exist): {n_positive} ===")
+        print(f"=== POSITIVE TESTS (documents that should exist): {n_positive} ===")
         print(f"Found in Top-5:      {metrics.get('queries_with_answer_in_top5', 'N/A')}")
         top5 = metrics.get('top5_recall')
         mrr_val = metrics.get('mrr')
@@ -867,14 +961,14 @@ def main():
         print(f"Avg Metadata Acc:    {meta:.2%}" if meta is not None else "Avg Metadata Acc:    N/A")
         print()
         print("Metadata Flag Accuracy:")
-        pf_acc = metrics.get('penalty_fine_accuracy')
-        pr_acc = metrics.get('prohibition_accuracy')
-        ob_acc = metrics.get('obligation_accuracy')
-        pe_acc = metrics.get('permission_accuracy')
-        print(f"  Penalty/Fine:      {pf_acc:.2%}" if pf_acc is not None else "  Penalty/Fine:      N/A")
-        print(f"  Prohibition:       {pr_acc:.2%}" if pr_acc is not None else "  Prohibition:       N/A")
-        print(f"  Obligation:        {ob_acc:.2%}" if ob_acc is not None else "  Obligation:        N/A")
-        print(f"  Permission:        {pe_acc:.2%}" if pe_acc is not None else "  Permission:        N/A")
+        fa_acc = metrics.get('funding_available_accuracy')
+        ct_acc = metrics.get('clinical_trial_accuracy')
+        rf_acc = metrics.get('research_focus_accuracy')
+        el_acc = metrics.get('eligibility_accuracy')
+        print(f"  Funding Available: {fa_acc:.2%}" if fa_acc is not None else "  Funding Available: N/A")
+        print(f"  Clinical Trial:    {ct_acc:.2%}" if ct_acc is not None else "  Clinical Trial:    N/A")
+        print(f"  Research Focus:    {rf_acc:.2%}" if rf_acc is not None else "  Research Focus:    N/A")
+        print(f"  Eligibility:       {el_acc:.2%}" if el_acc is not None else "  Eligibility:       N/A")
         print()
         print("By Difficulty:")
         for diff, diff_metrics in metrics.get('by_difficulty', {}).items():
@@ -884,7 +978,7 @@ def main():
     n_negative = metrics.get('negative_test_count', 0)
     if n_negative > 0:
         print()
-        print(f"=== NEGATIVE TESTS (no law should exist): {n_negative} ===")
+        print(f"=== NEGATIVE TESTS (no document should exist): {n_negative} ===")
         print(f"True Negatives:      {metrics.get('true_negatives', 0)} (correctly identified)")
         print(f"False Positives:     {metrics.get('false_positives', 0)} (incorrectly claimed law exists)")
         neg_acc = metrics.get('negative_accuracy')

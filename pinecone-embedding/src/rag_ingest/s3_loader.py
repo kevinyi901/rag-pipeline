@@ -40,6 +40,9 @@ def load_parquet_from_s3(
         parquet_files = glob.glob(os.path.join(base, "**", "*.parquet"), recursive=True)
         if not parquet_files:
             raise FileNotFoundError(f"No parquet files found in {base}")
+        print(f"[debug] Found {len(parquet_files)} parquet files:")
+        for f in sorted(parquet_files):
+            print(f"  {f}")
         return pl.concat([pl.read_parquet(f) for f in sorted(parquet_files)], how="vertical")
 
     # S3 path
