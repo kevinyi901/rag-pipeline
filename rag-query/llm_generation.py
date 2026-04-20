@@ -31,30 +31,25 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
         score = match.get('score', 0)
 
         chunk_text = metadata.get('text', 'N/A')
-        state = metadata.get('state', 'N/A')
-        county = metadata.get('county', 'N/A')
-        section = metadata.get('section', 'N/A')
-        print(f"chunk_text: {chunk_text}")
-
-        tags = []
-        if metadata.get('obligation') == 'Y':
-            tags.append("Obligation")
-        if metadata.get('penalty') == 'Y':
-            tags.append("Penalty")
-        if metadata.get('permission') == 'Y':
-            tags.append("Permission")
-        if metadata.get('prohibition') == 'Y':
-            tags.append("Prohibition")
+        pi = metadata.get('Primary Investigator (Award Period) (Award Reports)', 'N/A')
+        project_title = metadata.get('Project Title (Award Period) (Award Reports)', 'N/A')
+        award_period = metadata.get('Award Period', 'N/A')
+        program_area = metadata.get('Program Area (Award Period) (Award Reports)', 'N/A')
+        award_type = metadata.get('Award Type (Award Period) (Award Reports)', 'N/A')
+        award_amount = metadata.get('Award Amount (Award Period) (Award Reports)', 'N/A')
+        name = metadata.get('Name', 'N/A')
+        page = metadata.get('page', 'N/A')
 
         context_string += f"[Chunk {i+1}]\n"
         context_string += f"Score: {score:.4f}\n"
-        context_string += f"State: {state}\n"
-        context_string += f"County: {county}\n"
-        context_string += f"Section: {section}\n"
-
-        if tags:
-            context_string += f"Tags: {', '.join(tags)}\n"
-
+        context_string += f"PI: {pi}\n"
+        context_string += f"Project Title: {project_title}\n"
+        context_string += f"Award Period: {award_period}\n"
+        context_string += f"Program Area: {program_area}\n"
+        context_string += f"Award Type: {award_type}\n"
+        context_string += f"Award Amount: {award_amount}\n"
+        context_string += f"Name: {name}\n"
+        context_string += f"Page: {page}\n"
         context_string += f"Text: \"{chunk_text}\"\n\n"
 
     return context_string
@@ -72,26 +67,19 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
         Generated response text
     """
     system_prompt = """
-    You are a highly intelligent program evaluation analyst with a scientific background. Your goal is to help a 
+    You are a highly intelligent program evaluation analyst with a scientific background. Your goal is to help a
     user understand the scientific research your organization has funded.
-    You will be given the user's original question and a list of 'Retrieved Chunks' from the organization's database.
+    You will be given the user’s original question and a list of ‘Retrieved Chunks’ from the organization’s database.
+    Each chunk includes metadata: PI, Project Title, Award Period, Program Area, Award Type, Award Amount, Name, and Page.
 
-    Answer the question below using ONLY the retrieved context above. Do not use outside knowledge.
- 
     Rules:
-    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". 
+    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". Do not use outside knowledge.
     2. If the context doesn’t answer the question, say so. Never guess.
-    3. Cite every claim: [Award #, PI, Institution, Report Year, Section].
+    3. Cite every claim using: [PI, Project Title, Award Period, Page].
     4. Neutral tone. No "impressive," "promising," or "significant." State what was proposed, done, and incomplete.
     5. Lead with numbers over adjectives. Flag contradictions between stated completion % and described work.
     6. Use "The investigator reports..." not declarative statements. Mark synthesis across sources.
     7. Only use gene/protein/compound names that appear in the context above.
- 
-    Audience: {audience_level}
-    - LAYPERSON: No jargon. Define technical terms. 8th-grade reading level.
-    - INTERNAL STAFF: Some technical language. Define specialized terms. (Default)
-    - SCIENTIST: Full technical precision. Preserve original terminology.
-
   """
 
     user_prompt = f"""
@@ -131,14 +119,14 @@ def generate_llm_response_filter_only_search(
         Generated response text with summary
     """
     system_prompt = """
-    You are a highly intelligent legal analyst.
-    You will be given a *sample* of the top-retrieved legal documents.
-    Your task is to **provide a high-level summary of the main themes** found in this sample.
+    You are a highly intelligent program evaluation analyst with a scientific background.
+    You will be given a sample of retrieved research funding reports.
+    Your task is to provide a high-level summary of the main themes found in this sample.
 
     - DO NOT try to answer a question.
     - DO NOT say "I cannot find an answer."
     - Simply summarize what you see. Group similar topics together.
-    - Start your response with: "The documents in this sample primarily discuss..."
+    - Start your response with: "The reports in this sample primarily discuss..."
   """
 
     user_prompt = f"""
@@ -157,8 +145,7 @@ def generate_llm_response_filter_only_search(
     response_text = message.content[0].text
 
     return (
-        f"Found {num_total_chunks} laws matching your filters. "
-        f"A full list is available in the generated CSV file.\n\n"
+        f"Found {num_total_chunks} reports matching your filters.\n\n"
         f"Here is a quick summary of the first 10 results:\n\n"
         f"{response_text}"
     )
