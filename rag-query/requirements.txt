@@ -3,3 +3,4 @@ anthropic>=0.40.0
 sentence-transformers>=2.2.0
 pandas>=2.0.0
 flask>=2.3.0
+flask-cors>=4.0.0
