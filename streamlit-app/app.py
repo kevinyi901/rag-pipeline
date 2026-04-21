@@ -274,7 +274,7 @@ _PASSCODES = [p.strip() for p in os.getenv("UNBARRED_PASSCODES", "").split(",") 
 
 if _PASSCODES:
     if not ss.get("authenticated"):
-        st.title("EYEgotthis")
+        st.title("Eyegentic")
         with st.form("login_form"):
             pw = st.text_input("Passcode", type="password")
             if st.form_submit_button("Enter"):

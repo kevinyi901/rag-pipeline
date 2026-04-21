@@ -369,14 +369,16 @@ export default function SightReader() {
     if (!pw) return;
     setPwLoading(true); setPwError("");
     try {
+      if (FALLBACK_LOGIN_PASS) {
+        if (pw === FALLBACK_LOGIN_PASS) { setAuthed(true); return; }
+        setPwError("Incorrect password."); return;
+      }
       const { ok, status, data } = await apiPost(LOGIN_URL, { password: pw });
       if (ok && data.ok) { setAuthed(true); return; }
       if (status === 401) { setPwError("Incorrect password."); return; }
-      if (FALLBACK_LOGIN_PASS && pw === FALLBACK_LOGIN_PASS) { setAuthed(true); return; }
-      setPwError(FALLBACK_LOGIN_PASS ? "Incorrect password." : "Cannot reach server. Is the API running?");
+      setPwError("Cannot reach server. Is the API running?");
     } catch {
-      if (FALLBACK_LOGIN_PASS && pwInput.trim() === FALLBACK_LOGIN_PASS) { setAuthed(true); return; }
-      setPwError(FALLBACK_LOGIN_PASS ? "Incorrect password." : "Cannot reach server. Is the API running?");
+      setPwError("Cannot reach server. Is the API running?");
     } finally { setPwLoading(false); }
   };
 
@@ -385,14 +387,16 @@ export default function SightReader() {
     if (!pw) return;
     setUploadLoading(true); setUploadPwError("");
     try {
+      if (FALLBACK_UPLOAD_PASS) {
+        if (pw === FALLBACK_UPLOAD_PASS) { setUploadAuthed(true); return; }
+        setUploadPwError("Incorrect upload password."); return;
+      }
       const { ok, status, data } = await apiPost(UPLOAD_URL, { password: pw });
       if (ok && data.ok) { setUploadAuthed(true); return; }
       if (status === 401) { setUploadPwError("Incorrect upload password."); return; }
-      if (FALLBACK_UPLOAD_PASS && pw === FALLBACK_UPLOAD_PASS) { setUploadAuthed(true); return; }
-      setUploadPwError(FALLBACK_UPLOAD_PASS ? "Incorrect upload password." : "Cannot reach server.");
+      setUploadPwError("Cannot reach server.");
     } catch {
-      if (FALLBACK_UPLOAD_PASS && uploadPw.trim() === FALLBACK_UPLOAD_PASS) { setUploadAuthed(true); return; }
-      setUploadPwError(FALLBACK_UPLOAD_PASS ? "Incorrect upload password." : "Cannot reach server.");
+      setUploadPwError("Cannot reach server.");
     } finally { setUploadLoading(false); }
   };
 
