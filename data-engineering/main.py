@@ -568,6 +568,7 @@ def main():
                 continue
 
             metadata = {col: row[col] for col in metadata_columns}
+            metadata[args.url_column] = url
 
             params = parse_qs(urlparse(url).query)
             doc_id = params.get("apId", [None])[0]
