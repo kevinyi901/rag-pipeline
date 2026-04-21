@@ -35,4 +35,4 @@ ENV PINECONE_API_KEY=""
 
 # Run the application
 EXPOSE 8000
-CMD ["python", "api.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "300", "api:app"]

@@ -268,6 +268,24 @@ if "run_id" not in ss:
     ss.run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
 # =========================
+# Auth
+# =========================
+_PASSCODES = [p.strip() for p in os.getenv("UNBARRED_PASSCODES", "").split(",") if p.strip()]
+
+if _PASSCODES:
+    if not ss.get("authenticated"):
+        st.title("EYEgotthis")
+        with st.form("login_form"):
+            pw = st.text_input("Passcode", type="password")
+            if st.form_submit_button("Enter"):
+                if pw in _PASSCODES:
+                    ss.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect passcode.")
+        st.stop()
+
+# =========================
 # Sidebar
 # =========================
 with st.sidebar:

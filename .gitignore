@@ -27,4 +27,5 @@ data-engineering/temp
 .claude
 
 # Streamlit
-streamlit-app/
+streamlit-app/streamlit-app.zip
+streamlit-app/venv
