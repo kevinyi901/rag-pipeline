@@ -78,15 +78,13 @@ python main.py \
 
 ### Arguments
 
-| Argument | Required | Description |
-|----------|----------|-------------|
- | `--input` | Yes | local `file/folder` OR `s3://bucket/prefix` OR `s3://bucket/file.pdf`
-| `--output` | Yes | S3 prefix for output Parquet files (`s3://bucket/env=prod[/]` (recommended) OR a local dir (for local runs)) |
- | `--env/--zone/--state/--county` | No | optional metadata (still written into parquet)
-| `--chunk-size` | No | Maximum chunk size in characters (default: 1000) |
-| `--chunk-overlap` | No | Overlap between chunks in characters (default: 200) |
-| `--no-ocr` | No | disable OCR fallback 
-| `--s3-max` | No | limit number of PDFs processed from S3 (0 = no limit)
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--input` | Yes | — | Path to input CSV (local file or `s3://bucket/key.csv`) |
+| `--out` | Yes | — | Output directory (local path or `s3://bucket/prefix/`) |
+| `--url-column` | No | `"Report Link"` | Name of the CSV column containing PDF URLs |
+| `--limit` | No | `0` (all) | Max number of CSV rows to process |
+| `--no-ocr` | No | — | Disable OCR fallback |
 
 ## AWS Deployment
 
