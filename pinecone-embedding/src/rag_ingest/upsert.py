@@ -9,7 +9,7 @@ def build_vectors_from_df(
     dense_embeddings: List[List[float]],
     sparse_embeddings: List[Dict[str, List[float]]],
     metadata: List[str],
-    id_template: str = "{county}#chunk{idx}",
+    id_template: str = "{doc_id}#page{page}",
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
 
     """Build Pinecone vectors objects and corresponding IDs from Polars DataFrame.

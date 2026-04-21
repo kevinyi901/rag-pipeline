@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PDF → Parquet extractor (local paths OR S3 prefixes)
-- Recursively lists PDFs under an S3 prefix
+PDF → Parquet extractor (CSV input with PDF URLs)
+- Reads a CSV where one column contains URLs to PDFs hosted on the internet
+- All other CSV columns are written as metadata columns on every page row
 - Extracts page text with layout-aware ordering + optional OCR fallback
-- WRITES OUTPUT to:
-    s3://<bucket>/env=prod/zone=text/state=<STATE>/county=<COUNTY>/<filename>_text.parquet
-  where <STATE> and <COUNTY> are parsed from the INPUT S3 KEY.
+- Writes one Parquet file per PDF to a local directory or S3 prefix
 
 Args:
-  --input : local file/folder OR s3://bucket/prefix OR s3://bucket/file.pdf
-  --out   : s3://bucket/env=prod[/] (recommended)  OR a local dir (for local runs)
-  --env/--zone/--state/--county : optional metadata (still written into parquet)
-  --no-ocr : disable OCR fallback
-  --s3-max : limit number of PDFs processed from S3 (0 = no limit)
-
-Notes:
-- For LOCAL inputs, --out is treated as a directory/prefix and we’ll write <stem>.parquet (no state/county mapping).
-- For S3 inputs, the output path is derived from INPUT KEY’s state=... and county=...
+  --input      : path to input CSV (local file or s3://bucket/key.csv)
+  --out        : local directory OR s3://bucket/prefix/ to write Parquet files
+  --url-column : name of the CSV column containing PDF URLs (default: "Report Link")
+  --no-ocr     : disable OCR fallback
 """
 
 import argparse
@@ -28,10 +22,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
+from urllib.parse import urlparse, parse_qs
 import re
 import tempfile
 import shutil
 
+import requests
 import fitz  # PyMuPDF
 from PIL import Image
 import pytesseract
@@ -46,7 +42,6 @@ except Exception:
     pafs = None
 
 import boto3
-from botocore.exceptions import ClientError
 
 # ------------------------ Tunables ------------------------
 
@@ -101,6 +96,20 @@ def slugify_filename(name: str) -> str:
 # ------------------------ OCR ------------------------
 
 def ocr_page_to_text(page: fitz.Page, dpi: int = OCR_DPI, lang: str = OCR_LANG) -> str:
+    """Render a PDF page to an image and extract text via Tesseract OCR.
+
+    Used as a fallback when PyMuPDF's native text extraction yields too little
+    content (e.g. scanned pages). The page is rasterized at the given DPI,
+    then passed to Tesseract. Returns an empty string on timeout.
+
+    Args:
+        page: A PyMuPDF page object to OCR.
+        dpi: Resolution for rasterization (higher = better accuracy, slower).
+        lang: Tesseract language code (e.g. 'eng').
+
+    Returns:
+        Extracted text with normalized newlines, or '' on failure.
+    """
     zoom = dpi / 72.0
     mat = fitz.Matrix(zoom, zoom)
     pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -114,6 +123,19 @@ def ocr_page_to_text(page: fitz.Page, dpi: int = OCR_DPI, lang: str = OCR_LANG) 
 # ------------------------ Layout-aware extraction ------------------------
 
 def _collect_items_dict(page: fitz.Page):
+    """Extract all text line items from a page using PyMuPDF's dict mode.
+
+    Iterates over text blocks and their lines, collecting each non-empty line
+    as a dict with its block index, bounding-box coordinates (x, y, x1), and
+    concatenated span text. Non-text blocks (e.g. images) are skipped.
+
+    Args:
+        page: A PyMuPDF page object.
+
+    Returns:
+        List of dicts, each with keys: 'bidx' (block index), 'y' (top y),
+        'x' (left x), 'x1' (right x), 'text' (line text content).
+    """
     d = page.get_text("dict") or {}
     items = []
     for b_idx, b in enumerate(d.get("blocks", [])):
@@ -132,6 +154,21 @@ def _collect_items_dict(page: fitz.Page):
     return items
 
 def _items_to_columns(items: List[dict], page_width: float):
+    """Detect whether a page has a two-column layout and split items accordingly.
+
+    Finds the largest horizontal gap between line centers (the "gutter") after
+    trimming header/footer bands. The gutter must pass several sanity checks:
+    it must be in the central band of the page, wide enough relative to page
+    width, and have enough items on each side.
+
+    Args:
+        items: Line items from _collect_items_dict.
+        page_width: The width of the PDF page in points.
+
+    Returns:
+        Tuple of (left_items, right_items, gutter_x). If no two-column layout
+        is detected, returns (items, [], None).
+    """
     # Need enough signals to even consider a split
     need = max(4, 2 * MIN_BLOCKS_PER_COLUMN)
     if len(items) < need:
@@ -199,6 +236,18 @@ def _items_to_columns(items: List[dict], page_width: float):
 
 
 def _sort_items(items: List[dict]):
+    """Sort line items into reading order (top-to-bottom, left-to-right).
+
+    Groups items into rows based on vertical proximity (within Y_TOL points),
+    sorts each row left-to-right by x-coordinate, then flattens into a single
+    ordered list.
+
+    Args:
+        items: Line items from _collect_items_dict or _items_to_columns.
+
+    Returns:
+        List of items reordered into natural reading sequence.
+    """
     if not items:
         return []
     items = sorted(items, key=lambda it: it["y"])
@@ -219,6 +268,19 @@ def _sort_items(items: List[dict]):
     return [it for row in rows for it in row]
 
 def page_text_layout(page: fitz.Page) -> str:
+    """Extract text from a PDF page with layout-aware reading order.
+
+    Handles both single-column and two-column layouts. For two-column pages,
+    text is read left column first (top to bottom), then right column, with
+    columns separated by a blank line. For single-column pages, items are
+    sorted in standard reading order.
+
+    Args:
+        page: A PyMuPDF page object.
+
+    Returns:
+        The full page text as a single string in reading order.
+    """
     items = _collect_items_dict(page)
     if not items:
         return ""
@@ -240,6 +302,19 @@ _BARE_ENUM_RE = re.compile(
 )
 
 def remove_orphan_enumerators(text: str) -> str:
+    """Remove standalone enumerator lines that are artifacts of column splitting.
+
+    PDF extraction can produce bare enumerator lines (e.g. "A.", "(3)", "iv.")
+    that were separated from their content by the layout parser. This function
+    drops enumerator-only lines when the next non-empty line is also a bare
+    enumerator, indicating a sequence of orphaned labels rather than a real list.
+
+    Args:
+        text: Raw extracted page text.
+
+    Returns:
+        Cleaned text with orphan enumerator lines removed.
+    """
     lines = str(text or "").splitlines()
     out, i, n = [], 0, len(lines)
 
@@ -272,13 +347,29 @@ def remove_orphan_enumerators(text: str) -> str:
 
 # ------------------------ Extraction core ------------------------
 
-def extract_pdf_to_records(pdf_path: Path,
-                           env: Optional[str],
-                           zone: Optional[str],
-                           state: Optional[str],
-                           county: Optional[str]) -> List[Dict]:
+def extract_pdf_to_records(pdf_path: Path, metadata: Dict, doc_id: Optional[str] = None) -> List[Dict]:
+    """Extract text from every page of a PDF and return one record per page.
+
+    For each page, attempts layout-aware text extraction first. Falls back to
+    OCR if the extracted text is shorter than MIN_TEXT_LEN and the page has
+    very few text blocks (likely a scanned image). Optionally cleans orphan
+    enumerators. Each record includes the text, metadata, and a content hash.
+
+    Args:
+        pdf_path: Path to the PDF file on disk.
+        metadata: Dict of metadata columns (from the CSV row) written into
+                  every page record.
+        doc_id: Optional stable identifier for this document (e.g. a URL
+                parameter). Falls back to a SHA1 hash of the file path if
+                not provided.
+
+    Returns:
+        List of dicts, one per page, with keys: doc_id, source_name, page,
+        text, is_ocr, char_len, sha256, extracted_at, plus all keys in metadata.
+    """
     source_name = pdf_path.name
-    doc_id = hashlib.sha1(str(pdf_path).encode("utf-8")).hexdigest()[:20]
+    if doc_id is None:
+        doc_id = hashlib.sha1(str(pdf_path).encode("utf-8")).hexdigest()[:20]
     ts = now_iso()
     records: List[Dict] = []
     ocr_used = 0
@@ -317,10 +408,7 @@ def extract_pdf_to_records(pdf_path: Path,
                 "char_len": len(txt),
                 "sha256": sha256_text(f"{source_name}|{page_num}|{txt}"),
                 "extracted_at": ts,
-                "env": as_str(env),
-                "zone": as_str(zone),
-                "state": as_str(state),
-                "county": as_str(county),
+                **metadata,
             }
             records.append(rec)
 
@@ -329,13 +417,22 @@ def extract_pdf_to_records(pdf_path: Path,
 # ------------------------ Parquet write ------------------------
 
 def write_parquet(records: List[Dict], out_path: str):
+    """Write a list of page records to a Parquet file, locally or on S3.
+
+    Converts records to a Pandas DataFrame, casts partition columns to string
+    type, then writes via PyArrow. For S3 paths, uses pyarrow.fs.S3FileSystem
+    with credentials from environment variables.
+
+    Args:
+        records: List of page record dicts from extract_pdf_to_records.
+        out_path: Destination path — either a local file path or an s3:// URI.
+    """
     if not records:
         print(f"[warn] No records to write for {out_path}")
         return
     df = pd.DataFrame.from_records(records)
-    for col in ("env", "zone", "state", "county", "source_name"):
-        if col in df.columns:
-            df[col] = df[col].astype("string")
+    if "source_name" in df.columns:
+        df["source_name"] = df["source_name"].astype("string")
     table = pa.Table.from_pandas(df, preserve_index=False)
 
     if out_path.startswith("s3://"):
@@ -357,91 +454,103 @@ def write_parquet(records: List[Dict], out_path: str):
         pq.write_table(table, out_path)
         print(f"[ok] wrote {len(df)} rows → {out_path}")
 
-# ------------------------ S3 helpers ------------------------
+# ------------------------ CSV + HTTP helpers ------------------------
 
-def discover_local_pdfs(input_path: Path) -> List[Path]:
-    if input_path.is_file() and input_path.suffix.lower() == ".pdf":
-        return [input_path]
-    if input_path.is_dir():
-        return sorted(p for p in input_path.rglob("*.pdf"))
-    return []
+def read_csv(input_path: str) -> pd.DataFrame:
+    """Read the input CSV from a local path or S3 URI.
 
-def list_s3_pdfs(bucket: str, prefix: str) -> List[str]:
-    s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")))
-    keys = []
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []) or []:
-            k = obj["Key"]
-            if k.lower().endswith(".pdf"):
-                keys.append(k)
-    return keys
+    Args:
+        input_path: Local file path or s3://bucket/key.csv.
 
-def download_s3_object(bucket: str, key: str, local_dir: Path) -> Path:
-    local_dir.mkdir(parents=True, exist_ok=True)
-    local_file = local_dir / slugify_filename(os.path.basename(key))
-    s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")))
-    s3.download_file(bucket, key, str(local_file))
+    Returns:
+        DataFrame with all columns from the CSV.
+    """
+    if is_s3_uri(input_path):
+        bucket, key = split_s3_uri(input_path)
+        s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")))
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        return pd.read_csv(obj["Body"])
+    return pd.read_csv(input_path)
+
+
+def download_url_pdf(url: str, local_dir: Path) -> Path:
+    """Download a PDF from an HTTP/HTTPS URL to a local directory.
+
+    Args:
+        url: HTTP/HTTPS URL pointing to a PDF.
+        local_dir: Local directory to save the file into.
+
+    Returns:
+        Path to the downloaded local file.
+    """
+    filename = slugify_filename(url.split("?")[0].rstrip("/").split("/")[-1])
+    if not filename.lower().endswith(".pdf"):
+        filename += ".pdf"
+    local_file = local_dir / filename
+    resp = requests.get(url, timeout=60, stream=True)
+    resp.raise_for_status()
+    with open(local_file, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            f.write(chunk)
     return local_file
 
-# ------------------------ Output mapping for S3 inputs ------------------------
 
-def parse_state_county_from_key(key: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Parse state=<state> and county=<county> from an S3 key path.
-    Returns (state, county) or (None, None) if not found.
-    """
-    state = county = None
-    parts = key.strip("/").split("/")
-    for seg in parts:
-        if seg.startswith("state="):
-            state = seg.split("=", 1)[1]
-        elif seg.startswith("county="):
-            county = seg.split("=", 1)[1]
-    return state, county
+def build_out_path(pdf_path: Path, out_base: str, row_index: int) -> str:
+    """Build the output Parquet file path from the PDF stem and --out base.
 
-def build_out_key_from_input(input_bucket: str, input_key: str, out_base: str) -> str:
-    """
-    out_base should be like: s3://<bucket>/env=prod[/]
-    Builds: s3://<same-bucket-or-out_base bucket>/env=prod/zone=text/state=STATE/county=COUNTY/<filename>_text.parquet
-    """
-    # Decide output bucket from out_base
-    if not out_base.startswith("s3://"):
-        raise ValueError("--out must be s3://... when using S3 input to auto-map env/state/county")
-    out_bucket, out_key_base = split_s3_uri(out_base)
+    Args:
+        pdf_path: Local path to the downloaded PDF.
+        out_base: Local directory or s3://bucket/prefix/.
+        row_index: CSV row index, prepended to filename to ensure uniqueness
+                   when multiple URLs share the same filename.
 
-    # Ensure env=prod root in out_key_base (user might pass s3://bucket/env=prod or s3://bucket/env=prod/)
-    out_key_base = out_key_base.strip("/")
-    if not out_key_base:
-        raise ValueError("Provide an --out like s3://<bucket>/env=prod/")
-    # Pull state/county from INPUT key
-    state, county = parse_state_county_from_key(input_key)
-    if not state or not county:
-        raise ValueError(f"Could not parse state/county from input key: {input_key}")
+    Returns:
+        Full output path string (local or s3://).
+    """
+    stem = f"row{row_index}_{pdf_path.stem}_text.parquet"
+    if out_base.startswith("s3://"):
+        out_bucket, out_key_base = split_s3_uri(out_base)
+        out_key_base = out_key_base.strip("/")
+        prefix = (out_key_base + "/") if out_key_base else ""
+        return f"s3://{out_bucket}/{prefix}{stem}"
+    return str(Path(out_base) / stem)
 
-    # Build output key
-    filename = os.path.basename(input_key)
-    stem = os.path.splitext(filename)[0] + "_text.parquet"
-    out_key = f"{out_key_base}/zone=text/state={state}/county={county}/{stem}"
-    return f"s3://{out_bucket}/{out_key}"
+
 
 # ------------------------ CLI ------------------------
 
 def main():
-    ap = argparse.ArgumentParser(description="PDF → Parquet (local path OR S3 prefix)")
-    ap.add_argument("--input", required=True, help="Local file/folder OR s3://bucket/prefix OR s3://bucket/file.pdf")
-    ap.add_argument("--out",   required=True, help="For S3 input, use s3://bucket/env=prod[/]; for local input, a dir or s3 prefix")
-    ap.add_argument("--env",   default=None)
-    ap.add_argument("--zone",  default=None)
-    ap.add_argument("--state", default=None)
-    ap.add_argument("--county", default=None)
-    ap.add_argument("--no-ocr", action="store_true", help="Disable OCR fallback entirely")
-    ap.add_argument("--s3-max", type=int, default=0, help="Limit PDFs processed from S3 prefix (0 = no limit)")
+    """CLI entry point: read CSV, download PDFs from URLs, extract text, write Parquet.
+
+    Reads an input CSV where one column contains PDF URLs. All other columns
+    are written as metadata on every page row. Downloads each PDF to a temp
+    directory, processes it, writes a Parquet file, and cleans up on exit.
+    """
+    ap = argparse.ArgumentParser(description="PDF → Parquet (CSV with PDF URLs)")
+    ap.add_argument("--input",      required=True, help="Path to input CSV (local or s3://bucket/key.csv)")
+    ap.add_argument("--out",        required=True, help="Output directory or s3://bucket/prefix/")
+    ap.add_argument("--url-column", default="Report Link", help="CSV column containing PDF URLs (default: 'Report Link')")
+    ap.add_argument("--no-ocr",     action="store_true", help="Disable OCR fallback entirely")
+    ap.add_argument("--limit",      type=int, default=0, help="Max number of rows to process (0 = all)")
     args = ap.parse_args()
 
-    global ALLOW_OCR
+    global ALLOW_OC
     if args.no_ocr:
         ALLOW_OCR = False
+
+    print(f"[info] reading CSV: {args.input}")
+    df = read_csv(args.input)
+
+    if args.url_column not in df.columns:
+        print(f"[error] URL column '{args.url_column}' not found in CSV. "
+              f"Available columns: {list(df.columns)}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.limit and args.limit > 0:
+        df = df.head(args.limit)
+
+    metadata_columns = [c for c in df.columns if c != args.url_column]
+    print(f"[info] {len(df)} rows | metadata columns: {metadata_columns}")
 
     total_pdfs = 0
     total_pages = 0
@@ -452,79 +561,37 @@ def main():
     tmp_in.mkdir(parents=True, exist_ok=True)
 
     try:
-        tasks: List[Tuple[Path, Optional[str], Optional[str]]] = []
-        # Each task: (local_pdf_path, s3_bucket_if_any, s3_key_if_any)
+        for i, row in df.iterrows():
+            url = str(row[args.url_column]).strip()
+            if not url or url.lower() == "nan":
+                print(f"[warn] row {i}: empty URL, skipping")
+                continue
 
-        if is_s3_uri(args.input):
-            in_bucket, in_key = split_s3_uri(args.input)
-            if in_key and in_key.lower().endswith(".pdf"):
-                print(f"[info] downloading single PDF from s3://{in_bucket}/{in_key}")
-                local = download_s3_object(in_bucket, in_key, tmp_in)
-                tasks.append((local, in_bucket, in_key))
+            metadata = {col: row[col] for col in metadata_columns}
+
+            params = parse_qs(urlparse(url).query)
+            doc_id = params.get("apId", [None])[0]
+            if doc_id:
+                print(f"[info] row {i}: using apId={doc_id} as doc_id")
             else:
-                prefix = in_key if in_key.endswith("/") else (in_key + "/") if in_key else ""
-                print(f"[info] listing PDFs under s3://{in_bucket}/{prefix} ...")
-                keys = list_s3_pdfs(in_bucket, prefix)
-                if args.s3_max and args.s3_max > 0:
-                    keys = keys[:args.s3_max]
-                print(f"[info] found {len(keys)} PDFs under prefix")
-                for k in keys:
-                    try:
-                        local = download_s3_object(in_bucket, k, tmp_in)
-                        tasks.append((local, in_bucket, k))
-                    except ClientError as e:
-                        print(f"[error] failed to download s3://{in_bucket}/{k}: {e}")
-        else:
-            in_path = Path(args.input)
-            for p in discover_local_pdfs(in_path):
-                tasks.append((p, None, None))
+                print(f"[warn] row {i}: no apId found in URL, falling back to hash")
 
-        if not tasks:
-            print(f"[error] No PDFs found for input: {args.input}", file=sys.stderr)
-            sys.exit(2)
-
-        # If --out is a single parquet file but multiple inputs -> error
-        out_is_single_parquet = (
-            args.out.lower().endswith(".parquet") and not args.out.startswith("s3://")
-        ) or (
-            args.out.startswith("s3://") and args.out.lower().endswith(".parquet")
-        )
-        if out_is_single_parquet and len(tasks) > 1:
-            print("[error] --out is a single file but multiple PDFs found. "
-                  "Use an s3 prefix like s3://bucket/env=prod/ or a local directory.", file=sys.stderr)
-            sys.exit(3)
-
-        for local_pdf, src_bucket, src_key in tasks:
-            total_pdfs += 1
-            print(f"[info] extracting: {local_pdf}")
+            print(f"[info] row {i}: downloading {url}")
             try:
-                # Extract records
-                records = extract_pdf_to_records(local_pdf, args.env, args.zone, args.state, args.county)
-
-                # Decide output path
-                if src_bucket and src_key:
-                    # S3 input: build out path from input key + out base (env=prod)
-                    out_path = build_out_key_from_input(src_bucket, src_key, args.out)
-                else:
-                    # Local input: generic behavior
-                    stem = Path(local_pdf).stem + "_text.parquet"
-                    if args.out.startswith("s3://"):
-                        out_bucket, out_key_base = split_s3_uri(args.out)
-                        out_key_base = out_key_base.strip("/")
-                        if out_key_base and not out_key_base.endswith("/"):
-                            out_key_base = out_key_base + "/"
-                        out_path = f"s3://{out_bucket}/{out_key_base}{stem}"
-                    else:
-                        outdir = Path(args.out)
-                        outdir.mkdir(parents=True, exist_ok=True)
-                        out_path = str(outdir / stem)
-
-                # Write parquet
-                write_parquet(records, out_path)
-                total_pages += len(records)
-
+                local_pdf = download_url_pdf(url, tmp_in)
             except Exception as e:
-                print(f"[error] failed on {local_pdf}: {e}", file=sys.stderr)
+                print(f"[error] row {i}: failed to download {url}: {e}", file=sys.stderr)
+                continue
+
+            print(f"[info] row {i}: extracting {local_pdf.name}")
+            try:
+                records = extract_pdf_to_records(local_pdf, metadata, doc_id=doc_id)
+                out_path = build_out_path(local_pdf, args.out, i)
+                write_parquet(records, out_path)
+                total_pdfs += 1
+                total_pages += len(records)
+            except Exception as e:
+                print(f"[error] row {i}: failed to process {local_pdf.name}: {e}", file=sys.stderr)
 
         dt = time.time() - t0
         print(f"[done] processed {total_pdfs} PDFs, {total_pages} pages in {dt:.1f}s")

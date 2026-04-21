@@ -34,6 +34,7 @@ def flatten_locations_payload(filters_payload: dict) -> dict:
     return normalized_filters
 
 
+# need to reconfigure metadata that we would need to implement
 def build_pinecone_filter(frontend_filters: dict) -> dict:
     """
     Converts a JSON filter object from the frontend into a

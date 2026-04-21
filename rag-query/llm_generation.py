@@ -1,7 +1,7 @@
 """
 LLM generation utilities for RAG pipeline.
 """
-import torch
+import anthropic
 from typing import List, Dict, Any, Optional
 
 from config import Config
@@ -10,11 +10,11 @@ from config import Config
 def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int] = None) -> str:
     """
     Send only useful metadata to the LLM.
-    
+
     Args:
         retrieved_chunks: List of retrieved chunk dictionaries
         max_chunks: Maximum number of chunks to include (for filter-only search)
-        
+
     Returns:
         Formatted context string for LLM
     """
@@ -30,10 +30,11 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
         metadata = match.get('metadata', {})
         score = match.get('score', 0)
 
-        chunk_text = metadata.get('chunk_text', 'N/A')
+        chunk_text = metadata.get('text', 'N/A')
         state = metadata.get('state', 'N/A')
         county = metadata.get('county', 'N/A')
         section = metadata.get('section', 'N/A')
+        print(f"chunk_text: {chunk_text}")
 
         tags = []
         if metadata.get('obligation') == 'Y':
@@ -45,7 +46,6 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
         if metadata.get('prohibition') == 'Y':
             tags.append("Prohibition")
 
-        # --- Build the new, enriched context string ---
         context_string += f"[Chunk {i+1}]\n"
         context_string += f"Score: {score:.4f}\n"
         context_string += f"State: {state}\n"
@@ -60,37 +60,38 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
     return context_string
 
 
-def generate_llm_response(query_text: str, context_string: str, tokenizer: Any, model: Any) -> str:
+def generate_llm_response(query_text: str, context_string: str) -> str:
     """
     Generate LLM response for standard search queries.
-    
+
     Args:
         query_text: User's query
         context_string: Context from retrieved chunks
-        tokenizer: LLM tokenizer
-        model: LLM model
-        
+
     Returns:
         Generated response text
     """
     system_prompt = """
-    You are a highly intelligent legal analyst. Your goal is to help a user understand the legal information provided.
-    You will be given the user's original question and a list of 'Retrieved Chunks' from a legal database.
+    You are a highly intelligent program evaluation analyst with a scientific background. Your goal is to help a 
+    user understand the scientific research your organization has funded.
+    You will be given the user's original question and a list of 'Retrieved Chunks' from the organization's database.
 
-    Your task is to generate a natural language response. You MUST follow these rules:
-    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". Do not use any outside knowledge.
-    2. Use the 'Score, State, County, Section, Tags' fields for quick understanding, but use the full 'Text' field to find the specific answer.
-    3. If the chunks do not contain a clear answer to the user's question, you MUST respond *only* with the text: 'The information was not found in the provided documents.'
-    4. If the chunks *do* contain an answer, summarize it and use the template below to explain the generation process.
+    Answer the question below using ONLY the retrieved context above. Do not use outside knowledge.
+ 
+    Rules:
+    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". 
+    2. If the context doesn’t answer the question, say so. Never guess.
+    3. Cite every claim: [Award #, PI, Institution, Report Year, Section].
+    4. Neutral tone. No "impressive," "promising," or "significant." State what was proposed, done, and incomplete.
+    5. Lead with numbers over adjectives. Flag contradictions between stated completion % and described work.
+    6. Use "The investigator reports..." not declarative statements. Mark synthesis across sources.
+    7. Only use gene/protein/compound names that appear in the context above.
+ 
+    Audience: {audience_level}
+    - LAYPERSON: No jargon. Define technical terms. 8th-grade reading level.
+    - INTERNAL STAFF: Some technical language. Define specialized terms. (Default)
+    - SCIENTIST: Full technical precision. Preserve original terminology.
 
-    ---
-    TEMPLATE FOR A SUCCESSFUL ANSWER:
-    ### Summary of Findings
-    [Your summary of the answer found in the chunks. Cite the chunks, e.g., "The law prohibits owners from letting their dog disturb the peace [Chunk 1]."]
-
-    ### How This Was Generated
-    To answer your question, this tool performed a search on the UnBarred 2.0 legal database. The "Retrieved Chunks" (which are provided in your CSV file) represent the top 10 most relevant sections of the law found by our search. This summary is based *only* on the information in those chunks. You can review the full text of each chunk in the CSV to verify the information for yourself.
-    ---
   """
 
     user_prompt = f"""
@@ -101,57 +102,31 @@ def generate_llm_response(query_text: str, context_string: str, tokenizer: Any, 
     {context_string}
   """
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    input_ids = tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        return_tensors="pt"
-    ).to(model.device)
-
-    terminators = [
-        tokenizer.eos_token_id,
-        tokenizer.convert_tokens_to_ids("<|eot_id|>")
-    ]
-
-    attention_mask = torch.ones_like(input_ids).to(model.device)
-    pad_token_id = tokenizer.eos_token_id
-
-    outputs = model.generate(
-        input_ids,
-        attention_mask=attention_mask,
-        pad_token_id=pad_token_id,
-        max_new_tokens=Config.MAX_NEW_TOKENS,
-        eos_token_id=terminators,
-        do_sample=Config.DO_SAMPLE
+    client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+    message = client.messages.create(
+        model=Config.CLAUDE_MODEL,
+        max_tokens=Config.MAX_NEW_TOKENS,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": user_prompt}],
     )
 
-    response = outputs[0][input_ids.shape[-1]:]
-    response_text = tokenizer.decode(response, skip_special_tokens=True)
-
-    return response_text
+    return message.content[0].text
 
 
+# TODO: get rid of this function probs
 def generate_llm_response_filter_only_search(
-    query_text: str, 
-    context_string: str, 
-    tokenizer: Any, 
-    model: Any, 
+    query_text: str,
+    context_string: str,
     num_total_chunks: int
 ) -> str:
     """
     Generate LLM response for filter-only searches.
-    
+
     Args:
         query_text: User's query (empty for filter-only)
         context_string: Context from retrieved chunks sample
-        tokenizer: LLM tokenizer
-        model: LLM model
         num_total_chunks: Total number of chunks retrieved
-        
+
     Returns:
         Generated response text with summary
     """
@@ -171,42 +146,19 @@ def generate_llm_response_filter_only_search(
     {context_string}
   """
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    input_ids = tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        return_tensors="pt"
-    ).to(model.device)
-
-    terminators = [
-        tokenizer.eos_token_id,
-        tokenizer.convert_tokens_to_ids("<|eot_id|>")
-    ]
-
-    attention_mask = torch.ones_like(input_ids).to(model.device)
-    pad_token_id = tokenizer.eos_token_id
-
-    outputs = model.generate(
-        input_ids,
-        attention_mask=attention_mask,
-        pad_token_id=pad_token_id,
-        max_new_tokens=Config.MAX_NEW_TOKENS,
-        eos_token_id=terminators,
-        do_sample=Config.DO_SAMPLE
+    client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+    message = client.messages.create(
+        model=Config.CLAUDE_MODEL,
+        max_tokens=Config.MAX_NEW_TOKENS,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": user_prompt}],
     )
 
-    response = outputs[0][input_ids.shape[-1]:]
-    response_text = tokenizer.decode(response, skip_special_tokens=True)
+    response_text = message.content[0].text
 
-    llm_output = (
+    return (
         f"Found {num_total_chunks} laws matching your filters. "
         f"A full list is available in the generated CSV file.\n\n"
         f"Here is a quick summary of the first 10 results:\n\n"
         f"{response_text}"
     )
-
-    return llm_output
