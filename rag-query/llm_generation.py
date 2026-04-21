@@ -75,9 +75,9 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     Each chunk includes metadata: PI, Project Title, Award Period, Program Area, Award Type, Award Amount, Name, and Page.
 
     Rules:
-    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks". Do not use outside knowledge.
+    1. Base your answer *ONLY* on the information inside the "Retrieved Chunks" and metadata. Do not use outside knowledge.
     2. If the context doesn’t answer the question, say so. Never guess.
-    3. Cite every claim using: [PI, Project Title, Award Period, Page].
+    3. Cite every claim using the metadata: [PI, Project Title, Award Period, Page].
     4. Neutral tone. No "impressive," "promising," or "significant." State what was proposed, done, and incomplete.
     5. Lead with numbers over adjectives. Flag contradictions between stated completion % and described work.
     6. Use "The investigator reports..." not declarative statements. Mark synthesis across sources.
