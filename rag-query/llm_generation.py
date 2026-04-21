@@ -39,6 +39,7 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
         award_amount = metadata.get('Award Amount (Award Period) (Award Reports)', 'N/A')
         name = metadata.get('Name', 'N/A')
         page = metadata.get('page', 'N/A')
+        report_link = metadata.get('Report Link', 'N/A')
 
         context_string += f"[Chunk {i+1}]\n"
         context_string += f"Score: {score:.4f}\n"
@@ -50,6 +51,7 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
         context_string += f"Award Amount: {award_amount}\n"
         context_string += f"Name: {name}\n"
         context_string += f"Page: {page}\n"
+        context_string += f"Report Link: {report_link}\n"
         context_string += f"Text: \"{chunk_text}\"\n\n"
 
     return context_string
