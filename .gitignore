@@ -29,3 +29,7 @@ data-engineering/temp
 # Streamlit
 streamlit-app/streamlit-app.zip
 streamlit-app/venv
+streamlit-app/.ebignore
+streamlit-app/.gitignore
+
+react-app/node_modules
