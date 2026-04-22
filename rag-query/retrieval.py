@@ -270,7 +270,7 @@ def rerank_chunks(reranker_model: Any, query: str, pinecone_matches: List[dict],
     # Create pairs of [query, chunk_text] for the model
     pairs = []
     for match in pinecone_matches:
-        chunk_text = match.get('metadata', {}).get('chunk_text', '')
+        chunk_text = match.get('metadata', {}).get('text', '')
         pairs.append((query, chunk_text))
 
     start_time = time.time()
