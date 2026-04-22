@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   HelpCircle, Wand2, X, Send, FileText,
   Filter, ChevronDown, ChevronRight, Upload, AlertCircle,
@@ -301,7 +302,7 @@ export default function SightReader() {
 
   // ── Layout ──
   const [menuOpen, setMenuOpen]       = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab]     = useState("filters");
   const [expandedSource, setExpandedSource] = useState(null);
 
@@ -506,20 +507,20 @@ export default function SightReader() {
         style={{ fontFamily: "'Roboto', sans-serif", backgroundColor: C.bg, color: C.ink }}>
 
         {/* ── Header ── */}
-        <header className="grid grid-cols-3 items-center px-5 py-3 border-b shrink-0"
+        <header className="grid grid-cols-2 items-center px-5 py-3 border-b shrink-0"
           style={{ borderColor: C.line, backgroundColor: C.headerBg, color: C.headerText }}>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setSidebarOpen(v => !v)}
-              className="p-2 rounded transition hidden md:flex items-center gap-1 text-xs tracking-widest uppercase hover:opacity-80"
-              style={{ color: C.highlight }}>
-              <Filter size={14} />
-            </button>
-          </div>
+{/*           <div className="flex items-center gap-2 hidden"> */}
+{/*             <button onClick={() => setSidebarOpen(v => !v)} */}
+{/*               className="p-2 rounded transition hidden md:flex items-center gap-1 text-xs tracking-widest uppercase hover:opacity-80" */}
+{/*               style={{ color: C.highlight }}> */}
+{/*               <Filter size={14} /> */}
+{/*             </button> */}
+{/*           </div> */}
 
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex items-center justify-start gap-3">
             <span style={{ fontFamily: "'Roboto Condensed', sans-serif", fontWeight: 700,
               fontSize: "20px", letterSpacing: "0.02em", color: C.headerText }}>
-              FIGHTING BLINDNESS
+              FOUNDATION FIGHTING BLINDNESS
             </span>
             <span className="text-xs px-2 py-0.5 rounded font-medium hidden sm:inline"
               style={{ backgroundColor: C.highlight, color: C.navy }}>
@@ -901,7 +902,7 @@ function EmptyState() {
         What would you<br />like to know?
       </h2>
       <p className="max-w-md leading-relaxed text-sm" style={{ color: C.inkSoft }}>
-        Ask a question about the Foundation Fighting Blindness research corpus.
+        Ask a question about the research corpus.<br />
         Every answer is grounded in retrieved documents.
       </p>
       <div className="w-16 h-1 rounded mt-8" style={{ backgroundColor: C.highlight }} />
@@ -921,11 +922,11 @@ function AIMessage({ message }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-[10px] tracking-[0.25em] uppercase font-bold mb-2" style={{ color: C.highlight }}>
-          Foundation Research · Response
+          Response
         </div>
-        <p className="text-sm leading-relaxed mb-5 whitespace-pre-wrap" style={{ color: C.ink }}>
-          {message.text}
-        </p>
+        <div className="text-sm leading-relaxed mb-5 prose prose-sm max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg" style={{ color: C.ink }}>
+          <ReactMarkdown>{message.text}</ReactMarkdown>
+        </div>
         {message.sources && message.sources.length > 0 && (
           <div className="border-t pt-4" style={{ borderColor: C.line }}>
             <button onClick={() => setShowSources(v => !v)}
@@ -967,6 +968,7 @@ function SourceCard({ source, index }) {
           <ExternalLink size={10} className="inline ml-1 opacity-40" />
         </a>
       </div>
+{/*        TODO: need to display PI name correctly here */}
       <div className="text-xs flex flex-wrap gap-1.5 pl-7" style={{ color: C.inkSoft }}>
         {source.authors && <span>{source.authors}</span>}
         {source.year && <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{source.year}</span>}
