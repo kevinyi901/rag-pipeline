@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   HelpCircle, Wand2, X, Send, FileText,
   Filter, ChevronDown, ChevronRight, Upload, AlertCircle,
@@ -913,7 +914,7 @@ function EmptyState() {
 // ─── AI message ───────────────────────────────────────────────────────────────
 function AIMessage({ message }) {
   const C = useTheme();
-  const [showSources, setShowSources] = useState(true);
+  const [showSources, setShowSources] = useState(false);
   return (
     <div className="flex gap-4">
       <div className="shrink-0 mt-1 w-7 h-7 rounded flex items-center justify-center"
@@ -925,7 +926,7 @@ function AIMessage({ message }) {
           Response
         </div>
         <div className="text-sm leading-relaxed mb-5 prose prose-sm max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg" style={{ color: C.ink }}>
-          <ReactMarkdown>{message.text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
         </div>
         {message.sources && message.sources.length > 0 && (
           <div className="border-t pt-4" style={{ borderColor: C.line }}>

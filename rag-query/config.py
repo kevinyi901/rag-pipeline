@@ -18,7 +18,7 @@ class Config:
     VECTOR_DIMENSION: int = 1024
 
     # Model Configuration
-    CLAUDE_MODEL: str = "claude-haiku-4-5-20251001"
+    CLAUDE_MODEL: str = "claude-sonnet-4-6"
     EMBEDDING_MODEL_DENSE: str = "multilingual-e5-large"
     EMBEDDING_MODEL_SPARSE: str = "pinecone-sparse-english-v0"
     RERANKER_MODEL_ID: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -30,7 +30,7 @@ class Config:
     RERANK_TOP_N: int = 50
     
     # LLM Generation Settings
-    MAX_NEW_TOKENS: int = 1024
+    MAX_NEW_TOKENS: int = 2048
     DO_SAMPLE: bool = False
     
     # Output Configuration
