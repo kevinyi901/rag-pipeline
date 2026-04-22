@@ -27,7 +27,7 @@ class Config:
     BASELINE_TOP_K: int = 5
     HYBRID_TOP_K: int = 100
     FILTER_ONLY_TOP_K: int = 1000
-    RERANK_TOP_N: int = 5
+    RERANK_TOP_N: int = 50
     
     # LLM Generation Settings
     MAX_NEW_TOKENS: int = 1024
