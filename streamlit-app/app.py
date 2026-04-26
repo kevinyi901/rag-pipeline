@@ -281,6 +281,23 @@ with st.sidebar:
         ss.messages = []
         st.rerun()
 
+
+
+@st.cache_data
+def load_filter_options() -> dict:
+    try:
+        headers = {"Content-Type": "application/json"}
+        if API_KEY:
+            headers["Authorization"] = f"Bearer {API_KEY}"
+        r = requests.get(f"{API_URL.rstrip('/filters').rstrip('/query')}/filters", headers=headers, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        st.warning(f"Could not load filter options: {e}")
+        return {}
+
+filter_options = load_filter_options()
+
 # =========================
 # Tabs
 # =========================

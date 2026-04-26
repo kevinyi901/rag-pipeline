@@ -81,6 +81,40 @@ def stats():
         "all_indexes": all_indexes,
     })
 
+@app.route('/filters', methods=['GET'])
+def get_filter_options():
+    try:
+        # Fetch a large sample of vectors using a dummy vector
+        dummy_vector = [0.0] * Config.VECTOR_DIMENSION
+        response = hybrid_pipeline.pinecone_index.query(
+            namespace=Config.PINECONE_NAMESPACE,
+            top_k=10000,
+            vector=dummy_vector,
+            include_metadata=True
+        )
+
+        matches = response.get('matches', [])
+
+        # Collect unique values per field
+        fields = ['gene', 'program_area', 'award_type', 'institution', 'city', 'state', 'county', 'grant_number']
+        filter_options = {field: set() for field in fields}
+
+        for match in matches:
+            metadata = match.get('metadata', {})
+            for field in fields:
+                val = metadata.get(field)
+                if val and isinstance(val, str) and val.strip():
+                    filter_options[field].add(val.strip())
+
+        # Convert sets to sorted lists
+        filter_options = {k: sorted(v) for k, v in filter_options.items()}
+
+        return jsonify(filter_options)
+
+    except Exception as e:
+        print(f"Error fetching filter options: {str(e)}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
 
 # ─── Query ───────────────────────────────────────────────────────────────────
 
