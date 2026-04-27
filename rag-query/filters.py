@@ -46,31 +46,61 @@ def build_pinecone_filter(frontend_filters: dict) -> dict:
     Returns:
         Pinecone-compatible filter dictionary
     """
-    multi_select_fields = ['state', 'county']
-    binary_fields = ['penalty', 'obligation', 'permission', 'prohibition']
-    numeric_fields = ['fk_grade', 'fre', 'wc', 'pct_complex']
+    multi_select_fields = [
+        'Grant Number',
+        'Name',
+        'Award Period',
+        'Requirement Type',
+        'Report Link',
+        'Program Area (Award Period) (Award Reports)',
+        'Primary Investigator (Award Period) (Award Reports)',
+        'Institution (Award Period) (Award Reports)',
+        'Project Title (Award Period) (Award Reports)',
+        'Award Type (Award Period) (Award Reports)',
+        'ORCiD (Award Period) (Award Reports)',
+        'City (Award Period) (Award Reports)',
+        'State (Award Period) (Award Reports)',
+        'Country (Award Period) (Award Reports)',
+    ]
+    numeric_fields = [
+        'Award Amount (Award Period) (Award Reports)',
+        'Award Amount (Base) (Award Period) (Award Reports)',
+        'Award Budget Total (Award Period) (Award Reports)',
+    ]
+    date_fields = [
+        'Start Date (Award Period) (Award Reports)',
+        'End Date (Award Period) (Award Reports)',
+        'Received Date',
+        'Due Date',
+        'Award Start Date Total (Award Period) (Award Reports)',
+        'Award End Date Total (Award Period) (Award Reports)',
+    ]
 
     pinecone_filter = {}
     for key, value in frontend_filters.items():
-        # --- Handle Multi-Select fields (e.g., state, county) ---
+        # --- Handle Multi-Select fields ---
         if key in multi_select_fields:
             if isinstance(value, list) and len(value) > 0:
                 pinecone_filter[key] = {"$in": value}
 
-        # --- Handle Binary Y/N fields ---
-        elif key in binary_fields:
-            if value in ('Y', 'N'):
-                pinecone_filter[key] = {"$eq": value}
-
-        # --- Handle Numeric fields ---
+        # --- Handle Numeric range fields ---
         elif key in numeric_fields:
             range_query = {}
             if 'min' in value and value['min'] is not None:
                 range_query["$gte"] = value['min']
             if 'max' in value and value['max'] is not None:
                 range_query["$lte"] = value['max']
+            if range_query:
+                pinecone_filter[key] = range_query
 
-            if range_query:  # Only add if min or max was set
+        # --- Handle Date range fields ---
+        elif key in date_fields:
+            range_query = {}
+            if 'start' in value and value['start'] is not None:
+                range_query["$gte"] = value['start']
+            if 'end' in value and value['end'] is not None:
+                range_query["$lte"] = value['end']
+            if range_query:
                 pinecone_filter[key] = range_query
 
     return pinecone_filter

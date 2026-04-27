@@ -31,27 +31,55 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
         score = match.get('score', 0)
 
         chunk_text = metadata.get('text', 'N/A')
-        pi = metadata.get('Primary Investigator (Award Period) (Award Reports)', 'N/A')
-        project_title = metadata.get('Project Title (Award Period) (Award Reports)', 'N/A')
+        grant_number = metadata.get('Grant Number', 'N/A')
+        name = metadata.get('Name', 'N/A')
         award_period = metadata.get('Award Period', 'N/A')
+        start_date = metadata.get('Start Date (Award Period) (Award Reports)', 'N/A')
+        end_date = metadata.get('End Date (Award Period) (Award Reports)', 'N/A')
+        received_date = metadata.get('Received Date', 'N/A')
+        due_date = metadata.get('Due Date', 'N/A')
+        requirement_type = metadata.get('Requirement Type', 'N/A')
+        report_link = metadata.get('Report Link', 'N/A')
         program_area = metadata.get('Program Area (Award Period) (Award Reports)', 'N/A')
+        award_amount_base = metadata.get('Award Amount (Base) (Award Period) (Award Reports)', 'N/A')
+        pi = metadata.get('Primary Investigator (Award Period) (Award Reports)', 'N/A')
+        institution = metadata.get('Institution (Award Period) (Award Reports)', 'N/A')
+        project_title = metadata.get('Project Title (Award Period) (Award Reports)', 'N/A')
         award_type = metadata.get('Award Type (Award Period) (Award Reports)', 'N/A')
         award_amount = metadata.get('Award Amount (Award Period) (Award Reports)', 'N/A')
-        name = metadata.get('Name', 'N/A')
-        page = metadata.get('page', 'N/A')
-        report_link = metadata.get('Report Link', 'N/A')
+        orcid = metadata.get('ORCiD (Award Period) (Award Reports)', 'N/A')
+        city = metadata.get('City (Award Period) (Award Reports)', 'N/A')
+        state = metadata.get('State (Award Period) (Award Reports)', 'N/A')
+        country = metadata.get('Country (Award Period) (Award Reports)', 'N/A')
+        award_budget_total = metadata.get('Award Budget Total (Award Period) (Award Reports)', 'N/A')
+        award_start_total = metadata.get('Award Start Date Total (Award Period) (Award Reports)', 'N/A')
+        award_end_total = metadata.get('Award End Date Total (Award Period) (Award Reports)', 'N/A')
 
         context_string += f"[Chunk {i+1}]\n"
         context_string += f"Score: {score:.4f}\n"
-        context_string += f"PI: {pi}\n"
-        context_string += f"Project Title: {project_title}\n"
+        context_string += f"Grant Number: {grant_number}\n"
+        context_string += f"Name: {name}\n"
         context_string += f"Award Period: {award_period}\n"
+        context_string += f"Start Date: {start_date}\n"
+        context_string += f"End Date: {end_date}\n"
+        context_string += f"Received Date: {received_date}\n"
+        context_string += f"Due Date: {due_date}\n"
+        context_string += f"Requirement Type: {requirement_type}\n"
+        context_string += f"Report Link: {report_link}\n"
         context_string += f"Program Area: {program_area}\n"
+        context_string += f"Award Amount (Base): {award_amount_base}\n"
+        context_string += f"PI: {pi}\n"
+        context_string += f"Institution: {institution}\n"
+        context_string += f"Project Title: {project_title}\n"
         context_string += f"Award Type: {award_type}\n"
         context_string += f"Award Amount: {award_amount}\n"
-        context_string += f"Name: {name}\n"
-        context_string += f"Page: {page}\n"
-        context_string += f"Report Link: {report_link}\n"
+        context_string += f"ORCiD: {orcid}\n"
+        context_string += f"City: {city}\n"
+        context_string += f"State: {state}\n"
+        context_string += f"Country: {country}\n"
+        context_string += f"Award Budget Total: {award_budget_total}\n"
+        context_string += f"Award Start Date Total: {award_start_total}\n"
+        context_string += f"Award End Date Total: {award_end_total}\n"
         context_string += f"Text: \"{chunk_text}\"\n\n"
 
     return context_string
@@ -72,12 +100,12 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     You are a highly intelligent program evaluation analyst with a scientific background. Your goal is to help a
     user understand the scientific research your organization has funded.
     You will be given the user’s original question and a list of ‘Retrieved Chunks’ from the organization’s database.
-    Each chunk includes metadata: PI, Project Title, Award Period, Program Area, Award Type, Award Amount, Name, and Page.
+    Each chunk includes metadata: Grant Number, Name, Award Period, Start Date, End Date, Received Date, Due Date, Requirement Type, Report Link, Program Area, Award Amount (Base), PI, Institution, Project Title, Award Type, Award Amount, ORCiD, City, State, Country, Award Budget Total, Award Start Date Total, Award End Date Total.
 
     Rules:
     1. Base your answer *ONLY* on the information inside the "Retrieved Chunks" and metadata. Do not use outside knowledge.
     2. If the context doesn’t answer the question, say so. Never guess.
-    3. Cite every claim using the structured metadata fields: [PI, Project Title, Award Period, Page]. 
+    3. Cite every claim using the structured metadata fields: [PI, Project Title, Grant Number, Award Period].
     4. Neutral tone. No "impressive," "promising," or "significant." State what was proposed, done, and incomplete.
     5. Lead with numbers over adjectives. Flag contradictions between stated completion % and described work.
     6. Use "The investigator reports..." not declarative statements. Mark synthesis across sources.
