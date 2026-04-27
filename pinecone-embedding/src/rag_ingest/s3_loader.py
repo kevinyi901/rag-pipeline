@@ -43,7 +43,12 @@ def load_parquet_from_s3(
         print(f"[debug] Found {len(parquet_files)} parquet files:")
         for f in sorted(parquet_files):
             print(f"  {f}")
-        return pl.concat([pl.read_parquet(f) for f in sorted(parquet_files)], how="vertical")
+        #return pl.concat([pl.read_parquet(f) for f in sorted(parquet_files)], how="diagonal")
+        # Force every column to String before concatenating
+        return pl.concat(
+            [pl.read_parquet(f).cast(pl.String) for f in sorted(parquet_files)],
+            how="vertical"  # Now that types match, vertical is faster than diagonal
+        )
 
     # S3 path
     s3_client = boto3.client('s3', region_name=region)
@@ -87,4 +92,4 @@ def load_parquet_from_s3(
         obj = s3_client.get_object(Bucket=bucket, Key=key)
         dfs.append(pl.read_parquet(BytesIO(obj['Body'].read())))
 
-    return pl.concat(dfs, how='vertical')
+    return pl.concat(dfs, how='diagonal')
