@@ -91,20 +91,19 @@ function buildFilters(state) {
 }
 
 function chunksToSources(chunks) {
-  return chunks.map((c, i) => ({
-    id:          c.id || String(i),
-    title:       c.source_name || c.doc_id || `Document ${i + 1}`,
-    authors:     c.pi_name || c.author || c.investigator || "",
-    year:        c.year   || c.date   || "",
-    type:        c.doc_type || "PDF",
-    institution: c.institution || c.grantee || c.university || "",
-    excerpt:     c.chunk_text  || c.text || "",
-    score:       c.rerank_score != null
-                   ? Number(c.rerank_score).toFixed(3)
-                   : c.score != null ? Number(c.score).toFixed(3) : "",
-    page:        c.page != null ? c.page : "",
-    state:       c.state  || "",
-    county:      c.county || "",
+  const uniqueReports = [...new Set(chunks.map(c => c['Report Link'] || c.source_name || c.doc_id || "").filter(Boolean))];
+  return uniqueReports.map((title, i) => ({
+    id:          String(i),
+    title,
+    authors:     "",
+    year:        "",
+    type:        "PDF",
+    institution: "",
+    excerpt:     "",
+    score:       "",
+    page:        "",
+    state:       "",
+    county:      "",
   }));
 }
 
@@ -963,11 +962,19 @@ function SourceCard({ source, index }) {
           style={{ backgroundColor: C.accent, color: "#fff", fontFamily: "'JetBrains Mono', monospace" }}>
           [{index}]
         </span>
-        <a href="#" onClick={e => { e.preventDefault(); setExpanded(v => !v); }}
-          className="text-sm font-medium leading-snug flex-1 hover:underline" style={{ color: C.ink }}>
-          {source.title}
-          <ExternalLink size={10} className="inline ml-1 opacity-40" />
-        </a>
+        {source.title.startsWith("http") ? (
+          <a href={source.title} target="_blank" rel="noopener noreferrer"
+            className="text-sm font-medium leading-snug flex-1 hover:underline" style={{ color: C.ink }}>
+            {source.title}
+            <ExternalLink size={10} className="inline ml-1 opacity-40" />
+          </a>
+        ) : (
+          <a href="#" onClick={e => { e.preventDefault(); setExpanded(v => !v); }}
+            className="text-sm font-medium leading-snug flex-1 hover:underline" style={{ color: C.ink }}>
+            {source.title}
+            <ExternalLink size={10} className="inline ml-1 opacity-40" />
+          </a>
+        )}
       </div>
 {/*        TODO: need to display PI name correctly here */}
       <div className="text-xs flex flex-wrap gap-1.5 pl-7" style={{ color: C.inkSoft }}>
