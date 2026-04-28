@@ -25,33 +25,44 @@ def print_chunks(retrieved_chunks: List[dict]) -> None:
         result['score'] = c.get('score', 0)
 
         metadata = c.get('metadata', {})
-        result['county'] = metadata.get('county', 'N/A')
-        result['section'] = metadata.get('section', 'N/A')
-        result['text'] = metadata.get('chunk_text', 'N/A')
-
-        result['penalty'] = metadata.get('penalty', 'N/A')
-        result['obligation'] = metadata.get('obligation', 'N/A')
-        result['permission'] = metadata.get('permission', 'N/A')
-        result['prohibition'] = metadata.get('prohibition', 'N/A')
-        result['fk_grade'] = metadata.get('fk_grade', 'N/A')
-        result['fre'] = metadata.get('fre', 'N/A')
-        result['wc'] = metadata.get('wc', 'N/A')
-        result['pct_complex'] = metadata.get('pct_complex', 'N/A')
+        result['Grant Number'] = metadata.get('Grant Number', 'N/A')
+        result['Name'] = metadata.get('Name', 'N/A')
+        result['Award Period'] = metadata.get('Award Period', 'N/A')
+        result['Start Date'] = metadata.get('Start Date (Award Period) (Award Reports)', 'N/A')
+        result['End Date'] = metadata.get('End Date (Award Period) (Award Reports)', 'N/A')
+        result['Received Date'] = metadata.get('Received Date', 'N/A')
+        result['Due Date'] = metadata.get('Due Date', 'N/A')
+        result['Requirement Type'] = metadata.get('Requirement Type', 'N/A')
+        result['Report Link'] = metadata.get('Report Link', 'N/A')
+        result['Program Area'] = metadata.get('Program Area (Award Period) (Award Reports)', 'N/A')
+        result['Award Amount (Base)'] = metadata.get('Award Amount (Base) (Award Period) (Award Reports)', 'N/A')
+        result['Primary Investigator'] = metadata.get('Primary Investigator (Award Period) (Award Reports)', 'N/A')
+        result['Institution'] = metadata.get('Institution (Award Period) (Award Reports)', 'N/A')
+        result['Project Title'] = metadata.get('Project Title (Award Period) (Award Reports)', 'N/A')
+        result['Award Type'] = metadata.get('Award Type (Award Period) (Award Reports)', 'N/A')
+        result['Award Amount'] = metadata.get('Award Amount (Award Period) (Award Reports)', 'N/A')
+        result['ORCiD'] = metadata.get('ORCiD (Award Period) (Award Reports)', 'N/A')
+        result['City'] = metadata.get('City (Award Period) (Award Reports)', 'N/A')
+        result['State'] = metadata.get('State (Award Period) (Award Reports)', 'N/A')
+        result['Country'] = metadata.get('Country (Award Period) (Award Reports)', 'N/A')
+        result['Award Budget Total'] = metadata.get('Award Budget Total (Award Period) (Award Reports)', 'N/A')
+        result['Award Start Date Total'] = metadata.get('Award Start Date Total (Award Period) (Award Reports)', 'N/A')
+        result['Award End Date Total'] = metadata.get('Award End Date Total (Award Period) (Award Reports)', 'N/A')
+        result['text'] = metadata.get('text', 'N/A')
 
         results.append(result)
 
     df = pd.DataFrame(results)
 
-    # Safely add preview and section columns
     if 'text' in df.columns and len(df) > 0:
         df['preview'] = df['text'].str.slice(0, 30) + '...'
-    if 'section' in df.columns and len(df) > 0:
-        df['section'] = df['section'].str.slice(0, 20) + '...'
 
     output_df = df[[
-        'score', 'county', 'section', 'preview', 
-        'penalty', 'obligation', 'permission', 'prohibition', 
-        'fk_grade', 'fre', 'wc', 'pct_complex'
+        'score', 'Grant Number', 'Name', 'Award Period', 'Start Date', 'End Date',
+        'Received Date', 'Due Date', 'Requirement Type', 'Report Link', 'Program Area',
+        'Award Amount (Base)', 'Primary Investigator', 'Institution', 'Project Title',
+        'Award Type', 'Award Amount', 'ORCiD', 'City', 'State', 'Country',
+        'Award Budget Total', 'Award Start Date Total', 'Award End Date Total', 'preview'
     ]]
 
     print(f"Total number of chunks: {len(retrieved_chunks)}")
@@ -77,33 +88,44 @@ def print_chunks_reranking(retrieved_chunks: List[dict]) -> None:
         result['rerank_score'] = c.get('rerank_score', 0)
 
         metadata = c.get('metadata', {})
-        result['county'] = metadata.get('county', 'N/A')
-        result['section'] = metadata.get('section', 'N/A')
-        result['text'] = metadata.get('chunk_text', 'N/A')
-
-        result['penalty'] = metadata.get('penalty', 'N/A')
-        result['obligation'] = metadata.get('obligation', 'N/A')
-        result['permission'] = metadata.get('permission', 'N/A')
-        result['prohibition'] = metadata.get('prohibition', 'N/A')
-        result['fk_grade'] = metadata.get('fk_grade', 'N/A')
-        result['fre'] = metadata.get('fre', 'N/A')
-        result['wc'] = metadata.get('wc', 'N/A')
-        result['pct_complex'] = metadata.get('pct_complex', 'N/A')
+        result['Grant Number'] = metadata.get('Grant Number', 'N/A')
+        result['Name'] = metadata.get('Name', 'N/A')
+        result['Award Period'] = metadata.get('Award Period', 'N/A')
+        result['Start Date'] = metadata.get('Start Date (Award Period) (Award Reports)', 'N/A')
+        result['End Date'] = metadata.get('End Date (Award Period) (Award Reports)', 'N/A')
+        result['Received Date'] = metadata.get('Received Date', 'N/A')
+        result['Due Date'] = metadata.get('Due Date', 'N/A')
+        result['Requirement Type'] = metadata.get('Requirement Type', 'N/A')
+        result['Report Link'] = metadata.get('Report Link', 'N/A')
+        result['Program Area'] = metadata.get('Program Area (Award Period) (Award Reports)', 'N/A')
+        result['Award Amount (Base)'] = metadata.get('Award Amount (Base) (Award Period) (Award Reports)', 'N/A')
+        result['Primary Investigator'] = metadata.get('Primary Investigator (Award Period) (Award Reports)', 'N/A')
+        result['Institution'] = metadata.get('Institution (Award Period) (Award Reports)', 'N/A')
+        result['Project Title'] = metadata.get('Project Title (Award Period) (Award Reports)', 'N/A')
+        result['Award Type'] = metadata.get('Award Type (Award Period) (Award Reports)', 'N/A')
+        result['Award Amount'] = metadata.get('Award Amount (Award Period) (Award Reports)', 'N/A')
+        result['ORCiD'] = metadata.get('ORCiD (Award Period) (Award Reports)', 'N/A')
+        result['City'] = metadata.get('City (Award Period) (Award Reports)', 'N/A')
+        result['State'] = metadata.get('State (Award Period) (Award Reports)', 'N/A')
+        result['Country'] = metadata.get('Country (Award Period) (Award Reports)', 'N/A')
+        result['Award Budget Total'] = metadata.get('Award Budget Total (Award Period) (Award Reports)', 'N/A')
+        result['Award Start Date Total'] = metadata.get('Award Start Date Total (Award Period) (Award Reports)', 'N/A')
+        result['Award End Date Total'] = metadata.get('Award End Date Total (Award Period) (Award Reports)', 'N/A')
+        result['text'] = metadata.get('text', 'N/A')
 
         results.append(result)
 
     df = pd.DataFrame(results)
 
-    # Safely add preview and section columns
     if 'text' in df.columns and len(df) > 0:
         df['preview'] = df['text'].str.slice(0, 30) + '...'
-    if 'section' in df.columns and len(df) > 0:
-        df['section'] = df['section'].str.slice(0, 20) + '...'
 
     output_df = df[[
-        'score', 'rerank_score', 'county', 'section', 'preview', 
-        'penalty', 'obligation', 'permission', 'prohibition', 
-        'fk_grade', 'fre', 'wc', 'pct_complex'
+        'score', 'rerank_score', 'Grant Number', 'Name', 'Award Period', 'Start Date', 'End Date',
+        'Received Date', 'Due Date', 'Requirement Type', 'Report Link', 'Program Area',
+        'Award Amount (Base)', 'Primary Investigator', 'Institution', 'Project Title',
+        'Award Type', 'Award Amount', 'ORCiD', 'City', 'State', 'Country',
+        'Award Budget Total', 'Award Start Date Total', 'Award End Date Total', 'preview'
     ]]
 
     print(f"Total number of chunks: {len(retrieved_chunks)}")
