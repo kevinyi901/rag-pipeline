@@ -337,6 +337,9 @@ export default function SightReader() {
     setStateInput(""); setCountyInput("");
   };
 
+  // ── Session ──
+  const [sessionId] = useState(() => crypto.randomUUID());
+
   // ── Chat ──
   const [messages, setMessages]       = useState([]);
   const [input, setInput]             = useState("");
@@ -415,7 +418,7 @@ export default function SightReader() {
       const r = await fetch(QUERY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, filters, mode: "hybrid" }),
+        body: JSON.stringify({ query: q, filters, mode: "hybrid", session_id: sessionId }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `API ${r.status}`);

@@ -1,7 +1,7 @@
 """
 Main RAG pipeline orchestration.
 """
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 
 from config import Config
 from models import initialize_reranker
@@ -53,7 +53,9 @@ class RAGPipeline:
     def run_baseline_search(
         self,
         query: str,
-        filters: Dict[str, Any]
+        filters: Dict[str, Any],
+        prior_messages: Optional[List[str]] = None,
+        prior_responses: Optional[List[str]] = None,
     ) -> Tuple[str, list]:
         """
         Run baseline search (dense embedding only).
@@ -93,7 +95,7 @@ class RAGPipeline:
             context_string = build_context_string(retrieved_chunks)
             # csv_filename = Config.BASELINE_CSV_FILENAME
             # generate_csv(csv_filename, retrieved_chunks)
-            llm_output = generate_llm_response(query, context_string)
+            llm_output = generate_llm_response(query, context_string, prior_messages, prior_responses)
         else:  # Filter-only search
             context_string = build_context_string(retrieved_chunks, 10)
             # csv_filename = Config.BASELINE_FILTER_CSV_FILENAME
@@ -101,16 +103,18 @@ class RAGPipeline:
             llm_output = generate_llm_response_filter_only_search(
                 query, context_string, len(retrieved_chunks)
             )
-        
+
         print("\n--- FINAL LLM OUTPUT ---")
         print(llm_output)
-        
+
         return llm_output, retrieved_chunks
-    
+
     def run_hybrid_search(
         self,
         query: str,
-        filters: Dict[str, Any]
+        filters: Dict[str, Any],
+        prior_messages: Optional[List[str]] = None,
+        prior_responses: Optional[List[str]] = None,
     ) -> Tuple[str, list]:
         """
         Run hybrid search with reranking (dense + sparse embeddings).
@@ -154,7 +158,7 @@ class RAGPipeline:
             context_string = build_context_string(retrieved_chunks)
             # csv_filename = Config.HYBRID_CSV_FILENAME
             # generate_csv_reranking(csv_filename, retrieved_chunks)
-            llm_output = generate_llm_response(query, context_string)
+            llm_output = generate_llm_response(query, context_string, prior_messages, prior_responses)
         else:  # Filter-only search
             context_string = build_context_string(retrieved_chunks, 10)
             # csv_filename = Config.HYBRID_FILTER_CSV_FILENAME
@@ -162,16 +166,18 @@ class RAGPipeline:
             llm_output = generate_llm_response_filter_only_search(
                 query, context_string, len(retrieved_chunks)
             )
-        
+
         print("\n--- FINAL LLM OUTPUT ---")
         print(llm_output)
-        
+
         return llm_output, retrieved_chunks
-    
+
     def run(
         self,
         query: str,
-        filters: Dict[str, Any]
+        filters: Dict[str, Any],
+        prior_messages: Optional[List[str]] = None,
+        prior_responses: Optional[List[str]] = None,
     ) -> Tuple[str, list]:
         """
         Run the appropriate search based on pipeline configuration.
@@ -184,6 +190,6 @@ class RAGPipeline:
             Tuple of (llm_output, retrieved_chunks)
         """
         if self.use_reranking:
-            return self.run_hybrid_search(query, filters)
+            return self.run_hybrid_search(query, filters, prior_messages, prior_responses)
         else:
-            return self.run_baseline_search(query, filters)
+            return self.run_baseline_search(query, filters, prior_messages, prior_responses)

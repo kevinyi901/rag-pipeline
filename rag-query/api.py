@@ -13,6 +13,9 @@ baseline_pipeline = RAGPipeline(use_reranking=False)
 hybrid_pipeline = RAGPipeline(use_reranking=True)
 print("Pipelines ready!")
 
+# In-memory session store: { session_id: { "messages": [...], "responses": [...] } }
+session_store = {}
+
 def serialize_chunks(chunks):
     """Convert retrieved chunks to JSON-serializable format."""
     serialized = []
@@ -94,6 +97,7 @@ def query():
         query_text = data.get('query', '')
         filters = data.get('filters', {})
         mode = data.get('mode', 'hybrid')
+        session_id = data.get('session_id', '')
 
         if not isinstance(query_text, str):
             return jsonify({"error": "query must be a string"}), 400
@@ -104,9 +108,19 @@ def query():
         if mode not in ['hybrid', 'baseline']:
             return jsonify({"error": "mode must be 'hybrid' or 'baseline'"}), 400
 
+        session = session_store.get(session_id, {"messages": [], "responses": []}) if session_id else {"messages": [], "responses": []}
+        prior_messages  = session["messages"]
+        prior_responses = session["responses"]
+
         pipeline = hybrid_pipeline if mode == 'hybrid' else baseline_pipeline
-        llm_output, retrieved_chunks = pipeline.run(query_text, filters)
+        llm_output, retrieved_chunks = pipeline.run(query_text, filters, prior_messages, prior_responses)
         serialized_chunks = serialize_chunks(retrieved_chunks)
+
+        if session_id:
+            if session_id not in session_store:
+                session_store[session_id] = {"messages": [], "responses": []}
+            session_store[session_id]["messages"].append(query_text)
+            session_store[session_id]["responses"].append(llm_output)
 
         return jsonify({
             "response": llm_output,
@@ -117,6 +131,13 @@ def query():
     except Exception as e:
         print(f"Error processing query: {str(e)}")
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
+
+@app.route('/session/<session_id>', methods=['GET'])
+def get_session(session_id):
+    if session_id not in session_store:
+        return jsonify({"error": "Session not found"}), 404
+    return jsonify(session_store[session_id])
 
 
 if __name__ == '__main__':

@@ -57,13 +57,35 @@ def build_context_string(retrieved_chunks: List[dict], max_chunks: Optional[int]
     return context_string
 
 
-def generate_llm_response(query_text: str, context_string: str) -> str:
+_RESPONSE_PREVIEW_CHARS = 500
+
+def build_chat_history_string(messages: List[str], responses: List[str]) -> str:
+    """Return the last 3 exchanges formatted as a Chat History block, or ‘’ if none."""
+    pairs = list(zip(messages, responses))[-3:]
+    if not pairs:
+        return ""
+    lines = ["**Chat History:**"]
+    for i, (msg, resp) in enumerate(pairs, 1):
+        preview = resp[:_RESPONSE_PREVIEW_CHARS] + ("…" if len(resp) > _RESPONSE_PREVIEW_CHARS else "")
+        lines.append(f"User Message {i}: {msg}")
+        lines.append(f"Response {i}: {preview}")
+    return "\n".join(lines)
+
+
+def generate_llm_response(
+    query_text: str,
+    context_string: str,
+    prior_messages: Optional[List[str]] = None,
+    prior_responses: Optional[List[str]] = None,
+) -> str:
     """
     Generate LLM response for standard search queries.
 
     Args:
-        query_text: User's query
+        query_text: User’s query
         context_string: Context from retrieved chunks
+        prior_messages: All previous user messages in this session (before this query)
+        prior_responses: All previous LLM responses in this session (before this query)
 
     Returns:
         Generated response text
@@ -77,17 +99,22 @@ def generate_llm_response(query_text: str, context_string: str) -> str:
     Rules:
     1. Base your answer *ONLY* on the information inside the "Retrieved Chunks" and metadata. Do not use outside knowledge.
     2. If the context doesn’t answer the question, say so. Never guess.
-    3. Cite every claim using the structured metadata fields: [PI, Project Title, Award Period, Page]. 
+    3. Cite every claim using the structured metadata fields: [PI, Project Title, Award Period, Page].
     4. Neutral tone. No "impressive," "promising," or "significant." State what was proposed, done, and incomplete.
     5. Lead with numbers over adjectives. Flag contradictions between stated completion % and described work.
     6. Use "The investigator reports..." not declarative statements. Mark synthesis across sources.
     7. Only use gene/protein/compound names that appear in the context above.
   """
 
-    user_prompt = f"""
-    **User's Question:**
-    {query_text}
+    history_string = build_chat_history_string(
+        prior_messages or [], prior_responses or []
+    )
+    history_block = f"\n    {history_string}\n" if history_string else ""
 
+    user_prompt = f"""
+    **User’s Question:**
+    {query_text}
+{history_block}
     **Retrieved Chunks:**
     {context_string}
   """
